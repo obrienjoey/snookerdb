@@ -2,8 +2,6 @@ import requests
 from bs4 import BeautifulSoup as bs
 import re
 import time
-import sqlite3
-import pandas as pd
 
 ### get the player details
 

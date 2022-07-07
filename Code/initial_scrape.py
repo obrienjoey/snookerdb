@@ -1,4 +1,7 @@
 import snooker_utils as snooker
+import sqlite3
+import pandas as pd
+import string
 
 surname_initials = list(string.ascii_lowercase)
 player_df = pd.DataFrame(snooker.player_details(surname_initials))

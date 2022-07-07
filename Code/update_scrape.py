@@ -1,5 +1,6 @@
 import snooker_utils as snooker
 import sqlite3
+import pandas as pd
 
 conn = sqlite3.connect("Database\snookerdb.db")
 
