@@ -32,7 +32,7 @@ def player_details(surname_initials):
 ### get the season urls
 
 def season_urls():
-    soup = bs(requests.get('https://cuetracker.net/seasons').content, features="lxml")
+    soup = bs(requests.get('https://cuetracker.net/seasons').content)
     season_urls = []
     href_tags = soup.find_all('a', href = True)
     for href_tag in href_tags:
