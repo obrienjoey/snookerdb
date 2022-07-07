@@ -1,0 +1,33 @@
+name: springsteen_data
+# Controls when the action will run.
+on:
+  push:
+  schedule:
+    - cron:  '30 00 * * *'
+jobs: 
+  dbUpdate:
+    # The type of runner that the job will run on
+    runs-on: windows-latest
+    # Load repo and install Python
+    steps:
+    - uses: actions/checkout@master
+    - uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    - run: pip install -r requirements.txt
+    # Run db update script
+    - name: Update db Data
+      run: python update_scrape.py
+      
+ # Add new files in data folder, commit along with other modified files, push
+    - name: Commit Files 
+      run: |
+        git config --local user.name 'obrienjoey'
+        git config --local user.email "mr.joeyob@gmail.com"
+        git add data/*
+        git commit -am "updated setlist data $(date)"
+        git push origin main
+      env:
+        REPO_KEY: ${{secrets.GITHUB_TOKEN}}
+        username: github-actions
