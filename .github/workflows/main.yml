@@ -1,4 +1,4 @@
-name: springsteen_data
+name: snooker data update
 # Controls when the action will run.
 on:
   push:
