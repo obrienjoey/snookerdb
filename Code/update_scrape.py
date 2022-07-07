@@ -1,0 +1,42 @@
+import source as source
+import pandas as pd
+import sqlite3
+
+conn = sqlite3.connect("Database\snookerdb.db")
+
+season_urls = source.season_urls()
+check_season = season_urls[0]
+tourn_df = pd.DataFrame(source.tournament_urls(check_season))
+
+match_data = source.matches_scrape(tourn_df['url'])
+match_df = pd.DataFrame(match_data, columns = ['tourn_id', 'match_id', 'date', 'stage', 'best_of', 
+                                               'player_1_score', 'player_2_score','player_1', 'player_1_url', 
+                                               'player_2', 'player_2_url', 'scores', 'walkover'])
+
+### now compare with what we already have
+
+local_match_df = pd.read_sql_query("SELECT * from matches", conn)
+local_tourn_df = pd.read_sql_query("SELECT * from tournament", conn)
+
+new_tourn_count = sum(tourn_df.tourn_id.isin(local_tourn_df.tourn_id) == False)
+new_match_count = sum(match_df.match_id.isin(local_match_df.match_id) == False)
+
+if new_tourn_count != 0:
+    print(f'number of new tournaments: {new_tourn_count}')
+    new_df = pd.concat([local_tourn_df, match_df[tourn_df.tourn_id.isin(local_tourn_df.tourn_id) == False]])
+    new_df = new_df.reset_index(drop = True)
+    new_df['tourn_id'] = pd.to_numeric(new_df['tourn_id'])
+    new_df.sort_values(by = ['tourn_id'])
+    new_df.applymap(str).to_sql("tournament", conn, if_exists="replace", index=False)
+    print('successfully updated tournament df')
+
+if new_match_count != 0:
+    print(f'number of new matches: {new_match_count}')
+    new_df = pd.concat([local_match_df, match_df[match_df.match_id.isin(local_match_df.match_id) == False]])
+    new_df = new_df.reset_index(drop = True)
+    new_df['match_id'] = pd.to_numeric(new_df['match_id'])
+    new_df.sort_values(by = ['match_id'])
+    new_df.applymap(str).to_sql("matches", conn, if_exists="replace", index=False)
+    print('successfully updated match df')    
+else:
+    print('\n no new matches to add')                                           
