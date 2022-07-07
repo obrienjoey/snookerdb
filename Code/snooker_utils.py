@@ -10,7 +10,7 @@ def player_details(surname_initials):
     for surname_initial in surname_initials:
         full_url = f'https://cuetracker.net/players/{surname_initial}'
         html_raw = requests.get(full_url)
-        soup = bs(html_raw.content)
+        soup = bs(html_raw.content, features="html.parser")
         tables = soup.findChildren('table')[0]
         rows = tables.find_all('tr')
         for row in rows:
@@ -32,7 +32,7 @@ def player_details(surname_initials):
 ### get the season urls
 
 def season_urls():
-    soup = bs(requests.get('https://cuetracker.net/seasons').content)
+    soup = bs(requests.get('https://cuetracker.net/seasons').content, features="html.parser")
     season_urls = []
     href_tags = soup.find_all('a', href = True)
     for href_tag in href_tags:
@@ -49,7 +49,7 @@ def tournament_urls(season_urls):
         season_urls = [season_urls]
     for season_url in season_urls:
         season = season_url[-9:]
-        soup = bs(requests.get(season_url).content)
+        soup = bs(requests.get(season_url).content, features="html.parser")
         tables = soup.findChildren('table')[2]
         rows = tables.find_all('tr')
         for row in rows:
@@ -74,7 +74,7 @@ def matches_scrape(tournament_urls):
     counter = 0
     for tourn_url in tournament_urls:
         tourn_id = tourn_url.rsplit('/', 1)[1]
-        soup = bs(requests.get(tourn_url).content)
+        soup = bs(requests.get(tourn_url).content, features="html.parser")
         regex = re.compile('.*match row.*')
         matches = soup.find_all("div",  {"class" : regex})
         for match in matches:
