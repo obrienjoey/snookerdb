@@ -49,7 +49,7 @@ def tournament_urls(season_urls):
         season_urls = [season_urls]
     for season_url in season_urls:
         season = season_url[-9:]
-        soup = bs(requests.get(season_url).content, features="lxml")
+        soup = bs(requests.get(season_url).content)
         tables = soup.findChildren('table')[2]
         rows = tables.find_all('tr')
         for row in rows:
@@ -74,7 +74,7 @@ def matches_scrape(tournament_urls):
     counter = 0
     for tourn_url in tournament_urls:
         tourn_id = tourn_url.rsplit('/', 1)[1]
-        soup = bs(requests.get(tourn_url).content, features="lxml")
+        soup = bs(requests.get(tourn_url).content)
         regex = re.compile('.*match row.*')
         matches = soup.find_all("div",  {"class" : regex})
         for match in matches:
