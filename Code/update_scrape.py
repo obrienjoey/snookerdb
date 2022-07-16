@@ -23,7 +23,7 @@ new_match_count = sum(match_df.match_id.isin(local_match_df.match_id) == False)
 
 if new_tourn_count != 0:
     print(f'number of new tournaments: {new_tourn_count}')
-    new_df = pd.concat([local_tourn_df, match_df[tourn_df.tourn_id.isin(local_tourn_df.tourn_id) == False]])
+    new_df = pd.concat([local_tourn_df, tourn_df[tourn_df.tourn_id.isin(local_tourn_df.tourn_id) == False]])
     new_df = new_df.reset_index(drop = True)
     new_df['tourn_id'] = pd.to_numeric(new_df['tourn_id'])
     new_df = new_df.sort_values(by = ['tourn_id'])
