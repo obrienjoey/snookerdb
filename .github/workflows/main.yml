@@ -19,9 +19,9 @@ jobs:
     # Run db update script
     - name: Update db Data
       run: python Code\update_scrape.py
-    # Run parquet file update
+    # Parquet file update
     - name: Update parquet Data
-      run: pyton Code\update_parquet.py
+      run: python Code\update_parquet.py
       
  # Add new files in data folder, commit along with other modified files, push
     - name: Commit Files 
