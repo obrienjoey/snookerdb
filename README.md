@@ -1,6 +1,6 @@
 # snookerdb
 
-The snookerdb repository contains a collection of `python` scripts which are used to collect a large collection of data describing the history (1907-) of the sport of snooker stored at [Cuetracker](https://cuetracker.net/). 
+The snookerdb repository contains a collection of `python` scripts which are used to collect a large collection of data describing the history (1907-) of the sport of snooker stored at [Cuetracker](https://cuetracker.net/). The data is stored in both a SQL database and a collection of separate Parquet files.
 
 ## Datasets
 
@@ -14,7 +14,7 @@ The scripts collect three separate datasets
 
 ## Data storage
 
-The data is stored  in a SQL database found in `Database\snookerdb.db`.
+The data is stored in a SQL database found in `Database\snookerdb.db`. For more convenient access the same data is also store in **Parquet** files in the `Parquet` folder.
 
 
 ## Automation
