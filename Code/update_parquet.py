@@ -2,7 +2,6 @@ import sqlite3
 import pandas as pd
 import pyarrow as pa
 import pyarrow.parquet as pq
-import string
 
 conn = sqlite3.connect("Database\snookerdb.db")
 
