@@ -13,13 +13,27 @@ match_df = pd.DataFrame(match_data, columns = ['tourn_id', 'match_id', 'date', '
                                                'player_1_score', 'player_2_score','player_1', 'player_1_url', 
                                                'player_2', 'player_2_url', 'scores', 'walkover'])
 
+surname_initials = list(string.ascii_lowercase)
+player_df = pd.DataFrame(snooker.player_details(surname_initials))
+
 ### now compare with what we already have
 
 local_match_df = pd.read_sql_query("SELECT * from matches", conn)
 local_tourn_df = pd.read_sql_query("SELECT * from tournament", conn)
+local_player_df = pd.read_sql_query("SELECT * from players", conn)
 
 new_tourn_count = sum(tourn_df.tourn_id.isin(local_tourn_df.tourn_id) == False)
 new_match_count = sum(match_df.match_id.isin(local_match_df.match_id) == False)
+new_player_count = sum(player_df.match_id.isin(local_player_df.match_id) == False)
+
+if new_player_count != 0:
+    print(f'number of new players: {new_player_count}')
+    new_df = pd.concat([local_player_df, player_df[player_df.player_id.isin(local_player_df.player_id) == False]])
+    new_df = new_df.reset_index(drop = True)
+    new_df['player_id'] = pd.to_numeric(new_df['player_id'])
+    new_df = new_df.sort_values(by = ['player_id'])
+    new_df.applymap(str).to_sql("players", conn, if_exists="replace", index=False)
+    print('successfully updated players df')
 
 if new_tourn_count != 0:
     print(f'number of new tournaments: {new_tourn_count}')
