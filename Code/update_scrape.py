@@ -15,7 +15,7 @@ match_df = pd.DataFrame(match_data, columns = ['tourn_id', 'match_id', 'date', '
                                                'player_2', 'player_2_url', 'scores', 'walkover'])
 
 surname_initials = list(string.ascii_lowercase)
-player_df = pd.DataFrame(snooker.player_details(surname_initials))
+player_df = pd.DataFrame(snooker.player_details(surname_initials, error_log = False))
 
 ### now compare with what we already have
 
@@ -25,7 +25,7 @@ local_player_df = pd.read_sql_query("SELECT * from players", conn)
 
 new_tourn_count = sum(tourn_df.tourn_id.isin(local_tourn_df.tourn_id) == False)
 new_match_count = sum(match_df.match_id.isin(local_match_df.match_id) == False)
-new_player_count = sum(player_df.match_id.isin(local_player_df.match_id) == False)
+new_player_count = sum(player_df.url.isin(local_player_df.url) == False)
 
 if new_player_count != 0:
     print(f'number of new players: {new_player_count}')

@@ -5,7 +5,7 @@ import time
 
 ### get the player details
 
-def player_details(surname_initials):
+def player_details(surname_initials, error_log = True):
     data = []
     for surname_initial in surname_initials:
         full_url = f'https://cuetracker.net/players/{surname_initial}'
@@ -24,7 +24,8 @@ def player_details(surname_initials):
             except:
                 # sometimes a player's nationality isn't defined
                 data.append({'url':url, 'first_name':first_name, 'surname':surname, 'nationality':'NA'})
-                print(f'Problem with nationality of player: {first_name} {surname}')
+                if error_log:
+                    print(f'Problem with nationality of player: {first_name} {surname}')
                 pass
         print(f'finished with initials beginning with {surname_initial}')
     return(data)
