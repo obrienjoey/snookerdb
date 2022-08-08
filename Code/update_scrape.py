@@ -29,7 +29,7 @@ new_player_count = sum(player_df.url.isin(local_player_df.url) == False)
 
 if new_player_count != 0:
     print(f'number of new players: {new_player_count}')
-    new_df = pd.concat([local_player_df, player_df[player_df.player_id.isin(local_player_df.player_id) == False]])
+    new_df = pd.concat([local_player_df, player_df[player_df.url.isin(local_player_df.url) == False]])
     new_df = new_df.reset_index(drop = True)
     new_df['player_id'] = pd.to_numeric(new_df['player_id'])
     new_df = new_df.sort_values(by = ['player_id'])
