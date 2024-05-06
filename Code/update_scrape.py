@@ -9,6 +9,9 @@ season_urls = snooker.season_urls()
 check_season = season_urls[0]
 tourn_df = pd.DataFrame(snooker.tournament_urls(check_season))
 
+if len(tourn_df) == 0:
+    tourn_df = pd.DataFrame(snooker.tournament_urls(season_urls[1]))
+
 match_data = snooker.matches_scrape(tourn_df['url'])
 match_df = pd.DataFrame(match_data, columns = ['tourn_id', 'match_id', 'date', 'stage', 'best_of', 
                                                'player_1_score', 'player_2_score','player_1', 'player_1_url', 
