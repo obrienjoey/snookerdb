@@ -2,13 +2,14 @@ import logging
 import re
 import time
 from typing import Any, Dict, List, Union
+
 import requests
 from bs4 import BeautifulSoup
-from requests.adapters import HTTPAdapter
-from urllib3.util import Retry
 
 # Import models for validation
 from models import BreakModel, FrameModel, MatchModel, PlayerModel, TournamentModel
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 
 # Configure module-level logging
 logger = logging.getLogger("snookerdb")
@@ -88,18 +89,18 @@ def parse_player_details(html: str) -> List[Dict[str, str]]:
     if not tables:
         logger.warning("No table found in player details HTML")
         return []
-    
+
     rows = tables[0].find_all('tr')
     data = []
     for row in rows:
         entries = row.find_all('a')
         if len(entries) < 2:
             continue
-        
+
         # Safely convert to str to satisfy mypy
         url_attr = entries[0].get('href')
         url = str(url_attr) if url_attr else ''
-        
+
         first_name = entries[0].get_text().strip()
         surname = entries[1].get_text().strip()
         nationality = 'NA'
@@ -108,13 +109,13 @@ def parse_player_details(html: str) -> List[Dict[str, str]]:
                 nationality = entries[2].get_text().lstrip()
             except IndexError as e:
                 logger.warning(f"IndexError parsing nationality for player '{first_name} {surname}': {e}")
-        
+
         try:
             player_model = PlayerModel(url=url, first_name=first_name, surname=surname, nationality=nationality)
             data.append(player_model.model_dump())
         except Exception as e:
             logger.error(f"Validation failed for player '{first_name} {surname}': {e}")
-            
+
     return data
 
 def player_details(surname_initials: List[str], error_log: bool = True) -> List[Dict[str, str]]:
@@ -191,7 +192,7 @@ def parse_tournament_urls(html: str, season: str) -> List[Dict[str, Any]]:
     if len(tables) < 3:
         logger.warning(f"Expected at least 3 tables for season {season}, found {len(tables)}")
         return []
-    
+
     rows = tables[2].find_all('tr')
     data = []
     for row in rows:
@@ -208,15 +209,15 @@ def parse_tournament_urls(html: str, season: str) -> List[Dict[str, Any]]:
             continue
         url = str(url_attr)
         tourn_id_str = url.rsplit("/", 1)[-1]
-        
+
         try:
             tourn_id = int(tourn_id_str)
         except ValueError:
             logger.error(f"Could not parse tournament ID '{tourn_id_str}' as int for season {season}")
             continue
-            
+
         category = tds[2].get_text().strip()
-        
+
         try:
             tourn_model = TournamentModel(
                 tourn_id=tourn_id,
@@ -229,7 +230,7 @@ def parse_tournament_urls(html: str, season: str) -> List[Dict[str, Any]]:
             data.append(tourn_model.model_dump())
         except Exception as e:
             logger.error(f"Validation failed for tournament with ID {tourn_id} under season {season}: {e}")
-            
+
     return data
 
 def tournament_urls(season_urls: Union[List[str], str]) -> List[Dict[str, Any]]:
@@ -278,38 +279,38 @@ def parse_matches(html: str, tourn_id: int) -> List[List[Any]]:
         match_id_attr = match.get('data-match-id')
         if not match_id_attr:
             continue
-        
+
         match_id_str = str(match_id_attr[0]) if isinstance(match_id_attr, list) else str(match_id_attr)
         try:
             match_id = int(match_id_str)
         except ValueError:
             logger.error(f"Could not parse match ID '{match_id_str}' as int under tournament {tourn_id}")
             continue
-            
+
         h5_tag = match.find('h5')
         stage = h5_tag.get_text().strip() if h5_tag else 'Unknown Stage'
-        
+
         best_of_tag = match.find('span', {'class': 'best_of text-nowrap'})
         best_of_str = best_of_tag.get_text().strip().strip('()') if best_of_tag else ''
         try:
             best_of = int(best_of_str)
         except ValueError:
             best_of = None
-            
+
         p1_score_tag = match.find('span', {'class': 'matchResultText text-nowrap float-left player_1_score'})
         player_1_score_str = p1_score_tag.get_text().strip() if p1_score_tag else ''
         try:
             player_1_score = int(player_1_score_str)
         except ValueError:
             player_1_score = None
-            
+
         p2_score_tag = match.find('span', {'class': 'matchResultText text-nowrap float-right player_2_score'})
         player_2_score_str = p2_score_tag.get_text().strip() if p2_score_tag else ''
         try:
             player_2_score = int(player_2_score_str)
         except ValueError:
             player_2_score = None
-            
+
         p1_div = match.find('div', {'class': 'player_1_name matchResultText mx-auto'})
         if p1_div:
             player_1 = p1_div.get_text().strip().replace(' (Walkover)', '')
@@ -322,7 +323,7 @@ def parse_matches(html: str, tourn_id: int) -> List[List[Any]]:
                 player_1_url = ''
         else:
             player_1, player_1_url = 'Unknown', ''
-            
+
         p2_div = match.find('div', {'class': 'player_2_name matchResultText mx-auto'})
         if p2_div:
             player_2 = p2_div.get_text().strip().replace(' (Walkover)', '')
@@ -335,7 +336,7 @@ def parse_matches(html: str, tourn_id: int) -> List[List[Any]]:
                 player_2_url = ''
         else:
             player_2, player_2_url = 'Unknown', ''
-            
+
         if ' (Walkover)' in match.get_text():
             date = None
             scores = None
@@ -345,14 +346,14 @@ def parse_matches(html: str, tourn_id: int) -> List[List[Any]]:
             played_on_div = match.find('div', {'class': 'col-12 played_on'})
             if played_on_div:
                 date = played_on_div.get_text().strip()
-                
+
             scores = None
             frame_scores_div = match.find('div', {'class': 'col-12 frame_scores'})
             if frame_scores_div:
                 scores = frame_scores_div.get_text().strip()
-                
+
             walkover = 0
-            
+
         try:
             match_model = MatchModel(
                 tourn_id=tourn_id,
@@ -376,7 +377,7 @@ def parse_matches(html: str, tourn_id: int) -> List[List[Any]]:
             ])
         except Exception as e:
             logger.error(f"Validation failed for match with ID {match_id} under tournament {tourn_id}: {e}")
-            
+
     return data
 
 def matches_scrape(tournament_urls: Union[List[str], str]) -> List[List[Any]]:
@@ -399,7 +400,7 @@ def matches_scrape(tournament_urls: Union[List[str], str]) -> List[List[Any]]:
         except ValueError:
             logger.error(f"Could not parse tournament ID '{tourn_id_str}' as int from URL: {tourn_url}")
             continue
-            
+
         try:
             html = fetch_html(tourn_url)
             parsed_data = parse_matches(html, tourn_id)
@@ -426,33 +427,33 @@ def parse_frames_and_breaks(match_id: int, scores_str: str) -> tuple[List[Dict[s
     breaks = []
     if not scores_str or 'Walkover' in scores_str:
         return frames, breaks
-        
+
     frame_strs = [f.strip() for f in scores_str.split(';')]
     frame_num = 1
     for frame_str in frame_strs:
         if not frame_str:
             continue
-            
+
         parts = frame_str.split('-')
         if len(parts) != 2:
             continue
-            
+
         p1_part, p2_part = parts[0].strip(), parts[1].strip()
-        
+
         m1 = re.match(r'^(\d+)(?:\(([\d,]+)\))?$', p1_part)
         m2 = re.match(r'^(\d+)(?:\(([\d,]+)\))?$', p2_part)
-        
+
         if not m1 or not m2:
             continue
-            
+
         p1_score = int(m1.group(1))
         p1_breaks_str = m1.group(2)
         p1_breaks = [int(b) for b in p1_breaks_str.split(',')] if p1_breaks_str else []
-        
+
         p2_score = int(m2.group(1))
         p2_breaks_str = m2.group(2)
         p2_breaks = [int(b) for b in p2_breaks_str.split(',')] if p2_breaks_str else []
-        
+
         try:
             frame_model = FrameModel(
                 match_id=match_id,
@@ -461,7 +462,7 @@ def parse_frames_and_breaks(match_id: int, scores_str: str) -> tuple[List[Dict[s
                 player_2_score=p2_score
             )
             frames.append(frame_model.model_dump())
-            
+
             for brk in p1_breaks:
                 break_model = BreakModel(
                     match_id=match_id,
@@ -470,7 +471,7 @@ def parse_frames_and_breaks(match_id: int, scores_str: str) -> tuple[List[Dict[s
                     points=brk
                 )
                 breaks.append(break_model.model_dump())
-                
+
             for brk in p2_breaks:
                 break_model = BreakModel(
                     match_id=match_id,
@@ -479,10 +480,10 @@ def parse_frames_and_breaks(match_id: int, scores_str: str) -> tuple[List[Dict[s
                     points=brk
                 )
                 breaks.append(break_model.model_dump())
-                
+
         except Exception as e:
             logger.error(f"Validation failed for frame/break in match {match_id}: {e}")
-            
+
         frame_num += 1
-        
+
     return frames, breaks

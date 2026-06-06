@@ -151,7 +151,7 @@ with sqlite3.connect(db_path) as conn:
         new_match_df["match_id"] = pd.to_numeric(new_match_df["match_id"])
         new_match_df.to_sql("matches", conn, if_exists="append", index=False)
         logger.info("Database update successful.")
-        
+
         logger.info(f"Parsing frames and breaks for {len(new_match_df)} new matches...")
         new_frames = []
         new_breaks = []
@@ -159,7 +159,7 @@ with sqlite3.connect(db_path) as conn:
             f, b = scraper.parse_frames_and_breaks(row["match_id"], row["scores"])
             new_frames.extend(f)
             new_breaks.extend(b)
-            
+
         if new_frames:
             logger.info(f"Inserting {len(new_frames)} new frames...")
             pd.DataFrame(new_frames).to_sql("frames", conn, if_exists="append", index=False)
@@ -174,31 +174,31 @@ with sqlite3.connect(db_path) as conn:
         local_frames_df = pd.read_sql_query("SELECT DISTINCT match_id FROM frames", conn)
         local_frames_match_ids = set(local_frames_df["match_id"].astype(str))
     except sqlite3.OperationalError:
-        # If frames table is completely empty or just created, it might cause an issue, though schema.sql should have created it.
+        # If frames table is completely empty or just created, it might cause an issue.
         local_frames_match_ids = set()
 
     missing_frames_matches = local_match_df[
         ~local_match_df['match_id'].astype(str).isin(local_frames_match_ids)
     ]
-    
+
     missing_frames_matches = missing_frames_matches[
-        missing_frames_matches['scores'].notna() & 
-        (missing_frames_matches['scores'] != '') & 
+        missing_frames_matches['scores'].notna() &
+        (missing_frames_matches['scores'] != '') &
         (~missing_frames_matches['scores'].str.contains('Walkover', na=False))
     ]
-    
+
     if len(missing_frames_matches) > 0:
         logger.info(f"Backfilling frames for {len(missing_frames_matches)} historical matches...")
         backfill_frames = []
         backfill_breaks = []
-        
-        # To avoid massive memory usage, we could chunk it, but the total number of matches is ~100k, 
+
+        # To avoid massive memory usage, we could chunk it, but the total number of matches is ~100k,
         # frames list might be up to 1M rows. Let's do it in one go for now, or chunk by 10k matches.
         for idx, row in missing_frames_matches.iterrows():
             f, b = scraper.parse_frames_and_breaks(row["match_id"], row["scores"])
             backfill_frames.extend(f)
             backfill_breaks.extend(b)
-            
+
         if backfill_frames:
             logger.info(f"Inserting {len(backfill_frames)} backfilled frames...")
             pd.DataFrame(backfill_frames).to_sql("frames", conn, if_exists="append", index=False)
