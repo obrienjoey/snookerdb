@@ -57,28 +57,6 @@ if len(tourn_df) == 0:
 if len(tourn_df) == 0:
     raise RuntimeError("No tournaments found for current or previous season. Scraping aborted.")
 
-# Scrape matches for these tournaments
-logger.info(f"Scraping matches for {len(tourn_df)} tournaments...")
-match_data = scraper.matches_scrape(tourn_df["url"])
-match_df = pd.DataFrame(
-    match_data,
-    columns=[
-        "tourn_id",
-        "match_id",
-        "date",
-        "stage",
-        "best_of",
-        "player_1_score",
-        "player_2_score",
-        "player_1",
-        "player_1_url",
-        "player_2",
-        "player_2_url",
-        "scores",
-        "walkover",
-    ],
-)
-
 # 3. Read existing data to compare and only fetch/insert new records
 with sqlite3.connect(db_path) as conn:
     local_match_df = pd.read_sql_query("SELECT * from matches", conn)
@@ -90,6 +68,34 @@ local_match_ids = set(local_match_df["match_id"].astype(str))
 local_tourn_ids = set(local_tourn_df["tourn_id"].astype(str))
 local_player_urls = set(local_player_df["url"].str.lower())
 
+# Identify completed tournaments (those with a Final match that has a result)
+completed_tourn_ids = set(local_match_df[
+    (local_match_df['stage'] == 'Final') & 
+    (local_match_df['scores'].notna() | (local_match_df['walkover'] == 1))
+]['tourn_id'].astype(str))
+
+# Filter tournaments: only scrape if they are new or not completed
+active_tourn_df = tourn_df[~tourn_df["tourn_id"].astype(str).isin(completed_tourn_ids)]
+
+if len(active_tourn_df) > 0:
+    logger.info(f"Scraping matches for {len(active_tourn_df)} active tournaments...")
+    match_data = scraper.matches_scrape(active_tourn_df["url"])
+    match_df = pd.DataFrame(
+        match_data,
+        columns=[
+            "tourn_id", "match_id", "date", "stage", "best_of", "player_1_score",
+            "player_2_score", "player_1", "player_1_url", "player_2", "player_2_url",
+            "scores", "walkover",
+        ],
+    )
+else:
+    logger.info("No active tournaments to scrape matches for.")
+    match_df = pd.DataFrame(columns=[
+        "tourn_id", "match_id", "date", "stage", "best_of", "player_1_score",
+        "player_2_score", "player_1", "player_1_url", "player_2", "player_2_url",
+        "scores", "walkover",
+    ])
+
 # Identify new tournaments and matches
 new_tourn_df = tourn_df[~tourn_df["tourn_id"].astype(str).isin(local_tourn_ids)]
 new_match_df = match_df[~match_df["match_id"].astype(str).isin(local_match_ids)]
@@ -97,8 +103,9 @@ new_match_df = match_df[~match_df["match_id"].astype(str).isin(local_match_ids)]
 logger.info(f"Scraped matches contain {len(new_match_df)} new matches and {len(new_tourn_df)} new tournaments.")
 
 # 4. Optimize player scraping: only scrape listing pages for new players
+# We ONLY check for missing players in newly scraped matches to avoid infinite loops on unlisted amateurs
 new_player_candidates = []
-for idx, row in match_df.iterrows():
+for idx, row in new_match_df.iterrows():
     if row["player_1_url"]:
         new_player_candidates.append((row["player_1"], row["player_1_url"]))
     if row["player_2_url"]:
@@ -109,7 +116,7 @@ missing_players = [(name, url) for name, url in new_player_candidates if url.low
 
 player_df = pd.DataFrame(columns=["url", "first_name", "surname", "nationality"])
 if missing_players:
-    logger.info(f"Found {len(missing_players)} players in matches not present in database.")
+    logger.info(f"Found {len(missing_players)} players in new matches not present in database.")
     # Determine the initials to scrape
     initials_to_scrape = set()
     for name, url in missing_players:
