@@ -30,3 +30,20 @@ CREATE TABLE IF NOT EXISTS matches (
     walkover INTEGER,
     FOREIGN KEY(tourn_id) REFERENCES tournament(tourn_id)
 );
+
+CREATE TABLE IF NOT EXISTS frames (
+    match_id INTEGER,
+    frame_num INTEGER,
+    player_1_score INTEGER,
+    player_2_score INTEGER,
+    PRIMARY KEY (match_id, frame_num),
+    FOREIGN KEY(match_id) REFERENCES matches(match_id)
+);
+
+CREATE TABLE IF NOT EXISTS breaks (
+    match_id INTEGER,
+    frame_num INTEGER,
+    player_number INTEGER,
+    points INTEGER,
+    FOREIGN KEY(match_id) REFERENCES matches(match_id)
+);

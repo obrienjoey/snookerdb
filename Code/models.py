@@ -33,3 +33,17 @@ class MatchModel(BaseModel):
     player_2_url: str
     scores: Optional[str] = None
     walkover: int = Field(default=0, ge=0, le=1)
+
+
+class FrameModel(BaseModel):
+    match_id: int
+    frame_num: int
+    player_1_score: int
+    player_2_score: int
+
+
+class BreakModel(BaseModel):
+    match_id: int
+    frame_num: int
+    player_number: int = Field(ge=1, le=2)
+    points: int

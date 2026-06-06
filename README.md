@@ -54,6 +54,20 @@ Describes individual match details and scores.
 - scores (TEXT, Nullable): Detailed frame-by-frame scores.
 - walkover (INTEGER): Boolean flag (0 = Standard, 1 = Walkover).
 
+### 4. frames
+Describes individual frame scores parsed from match results.
+- match_id (INTEGER, PRIMARY KEY, FOREIGN KEY): Reference to matches(match_id).
+- frame_num (INTEGER, PRIMARY KEY): The frame number in the match.
+- player_1_score (INTEGER): Points scored by player 1 in the frame.
+- player_2_score (INTEGER): Points scored by player 2 in the frame.
+
+### 5. breaks
+Describes significant scoring breaks during frames.
+- match_id (INTEGER, FOREIGN KEY): Reference to matches(match_id).
+- frame_num (INTEGER): The frame number in the match.
+- player_number (INTEGER): The player who made the break (1 or 2).
+- points (INTEGER): The break score points.
+
 ---
 
 ## Project Structure

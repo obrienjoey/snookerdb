@@ -79,3 +79,40 @@ def test_parse_matches(load_fixture):
     assert m2[10] == "https://cuetracker.net/players/mark-selby"
     assert m2[11] is None
     assert m2[12] == 1
+
+def test_parse_frames_and_breaks():
+    from scraper import parse_frames_and_breaks
+    
+    # Normal scores with breaks
+    frames, breaks = parse_frames_and_breaks(1, "104(104)-0; 21-101(88); 1-117(54,54)")
+    assert len(frames) == 3
+    assert frames[0]["player_1_score"] == 104
+    assert frames[0]["player_2_score"] == 0
+    assert frames[1]["player_1_score"] == 21
+    assert frames[1]["player_2_score"] == 101
+    assert frames[2]["player_1_score"] == 1
+    assert frames[2]["player_2_score"] == 117
+    
+    # Breaks for frame 1
+    f1_breaks = [b for b in breaks if b["frame_num"] == 1]
+    assert len(f1_breaks) == 1
+    assert f1_breaks[0]["points"] == 104
+    assert f1_breaks[0]["player_number"] == 1
+    
+    # Breaks for frame 2
+    f2_breaks = [b for b in breaks if b["frame_num"] == 2]
+    assert len(f2_breaks) == 1
+    assert f2_breaks[0]["points"] == 88
+    assert f2_breaks[0]["player_number"] == 2
+    
+    # Breaks for frame 3
+    f3_breaks = [b for b in breaks if b["frame_num"] == 3]
+    assert len(f3_breaks) == 2
+    assert f3_breaks[0]["points"] == 54
+    assert f3_breaks[1]["points"] == 54
+    assert f3_breaks[0]["player_number"] == 2
+    
+    # Walkover
+    f, b = parse_frames_and_breaks(2, "Walkover")
+    assert len(f) == 0
+    assert len(b) == 0

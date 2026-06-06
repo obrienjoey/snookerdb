@@ -8,7 +8,7 @@ from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
 # Import models for validation
-from models import MatchModel, PlayerModel, TournamentModel
+from models import BreakModel, FrameModel, MatchModel, PlayerModel, TournamentModel
 
 # Configure module-level logging
 logger = logging.getLogger("snookerdb")
@@ -411,3 +411,78 @@ def matches_scrape(tournament_urls: Union[List[str], str]) -> List[List[Any]]:
         pct = 100 * counter / len(tournament_urls)
         logger.info(f"Tournament {counter} / {len(tournament_urls)} ({pct:.2f} %) scraped")
     return data
+
+def parse_frames_and_breaks(match_id: int, scores_str: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Parses a frame scores string into structured frame and break data.
+
+    Args:
+        match_id: The ID of the match.
+        scores_str: The raw scores string (e.g. '104(104)-0; 21-101(88)').
+
+    Returns:
+        A tuple containing two lists: (frames_data, breaks_data)
+    """
+    frames = []
+    breaks = []
+    if not scores_str or 'Walkover' in scores_str:
+        return frames, breaks
+        
+    frame_strs = [f.strip() for f in scores_str.split(';')]
+    frame_num = 1
+    for frame_str in frame_strs:
+        if not frame_str:
+            continue
+            
+        parts = frame_str.split('-')
+        if len(parts) != 2:
+            continue
+            
+        p1_part, p2_part = parts[0].strip(), parts[1].strip()
+        
+        m1 = re.match(r'^(\d+)(?:\(([\d,]+)\))?$', p1_part)
+        m2 = re.match(r'^(\d+)(?:\(([\d,]+)\))?$', p2_part)
+        
+        if not m1 or not m2:
+            continue
+            
+        p1_score = int(m1.group(1))
+        p1_breaks_str = m1.group(2)
+        p1_breaks = [int(b) for b in p1_breaks_str.split(',')] if p1_breaks_str else []
+        
+        p2_score = int(m2.group(1))
+        p2_breaks_str = m2.group(2)
+        p2_breaks = [int(b) for b in p2_breaks_str.split(',')] if p2_breaks_str else []
+        
+        try:
+            frame_model = FrameModel(
+                match_id=match_id,
+                frame_num=frame_num,
+                player_1_score=p1_score,
+                player_2_score=p2_score
+            )
+            frames.append(frame_model.model_dump())
+            
+            for brk in p1_breaks:
+                break_model = BreakModel(
+                    match_id=match_id,
+                    frame_num=frame_num,
+                    player_number=1,
+                    points=brk
+                )
+                breaks.append(break_model.model_dump())
+                
+            for brk in p2_breaks:
+                break_model = BreakModel(
+                    match_id=match_id,
+                    frame_num=frame_num,
+                    player_number=2,
+                    points=brk
+                )
+                breaks.append(break_model.model_dump())
+                
+        except Exception as e:
+            logger.error(f"Validation failed for frame/break in match {match_id}: {e}")
+            
+        frame_num += 1
+        
+    return frames, breaks
