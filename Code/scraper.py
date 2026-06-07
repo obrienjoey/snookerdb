@@ -1,13 +1,13 @@
 import logging
 import re
 import time
-from typing import Any, Dict, List, Union, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import requests
 from bs4 import BeautifulSoup
 
 # Import models for validation
-from models import BreakModel, FrameModel, MatchModel, PlayerModel, TournamentModel, RankingModel
+from models import BreakModel, FrameModel, MatchModel, PlayerModel, RankingModel, TournamentModel
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
