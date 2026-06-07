@@ -43,6 +43,7 @@ with sqlite3.connect(db_path) as conn:
     cursor.execute("DROP TABLE IF EXISTS matches;")
     cursor.execute("DROP TABLE IF EXISTS tournament;")
     cursor.execute("DROP TABLE IF EXISTS players;")
+    cursor.execute("DROP TABLE IF EXISTS rankings;")
     conn.commit()
 
     # Run the schema creation sql
@@ -78,11 +79,18 @@ match_df = pd.DataFrame(
     ],
 )
 
+logger.info("Scraping ranking details...")
+ranking_seasons = [u.rsplit("/", 1)[-1] for u in season_urls]
+ranking_data = scraper.scrape_rankings(ranking_seasons)
+ranking_df = pd.DataFrame(ranking_data)
+
 logger.info("Writing scraped data to database...")
 with sqlite3.connect(db_path) as conn:
     # Use if_exists="append" to insert into pre-created tables matching schema
     player_df.to_sql("players", conn, if_exists="append", index=False)
     tourn_df.to_sql("tournament", conn, if_exists="append", index=False)
     match_df.to_sql("matches", conn, if_exists="append", index=False)
+    ranking_df.to_sql("rankings", conn, if_exists="append", index=False)
 
 logger.info("Initial scrape completed successfully and database initialized.")
+

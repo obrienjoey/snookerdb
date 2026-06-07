@@ -1,13 +1,13 @@
 import logging
 import re
 import time
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Union, Optional
 
 import requests
 from bs4 import BeautifulSoup
 
 # Import models for validation
-from models import BreakModel, FrameModel, MatchModel, PlayerModel, TournamentModel
+from models import BreakModel, FrameModel, MatchModel, PlayerModel, TournamentModel, RankingModel
 from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 
@@ -600,3 +600,96 @@ def parse_frames_and_breaks(match_id: int, scores_str: str) -> tuple[List[Dict[s
         frame_num += 1
 
     return frames, breaks
+
+
+def parse_rankings(html: str, season: str) -> List[Dict[str, Any]]:
+    """Parses a seasonal rankings page and returns a list of validated ranking dictionaries.
+
+    Args:
+        html: Raw HTML content from a season rankings page.
+        season: The season name (e.g. '2024-2025').
+
+    Returns:
+        List[Dict[str, Any]]: A list of dictionaries representing validated player rankings.
+    """
+    soup = BeautifulSoup(html, features="html.parser")
+    t = soup.find("table", id="main_table")
+    if not t:
+        logger.warning(f"No main_table found in rankings HTML for season {season}")
+        return []
+
+    tbody = t.find("tbody")
+    if not tbody:
+        logger.warning(f"No tbody found in rankings HTML for season {season}")
+        return []
+
+    rows = tbody.find_all("tr")
+    data = []
+    for row in rows:
+        tds = row.find_all("td")
+        if len(tds) < 6:
+            continue
+
+        p_a = tds[0].find("a")
+        if not p_a:
+            continue
+        player_name = p_a.get_text().strip()
+        player_url = str(p_a.get("href"))
+
+        def parse_int(text: str) -> Optional[int]:
+            clean_text = text.strip().replace(",", "")
+            if not clean_text or clean_text == "":
+                return None
+            try:
+                return int(clean_text)
+            except ValueError:
+                return None
+
+        start_position = parse_int(tds[1].get_text())
+        start_points = parse_int(tds[2].get_text())
+
+        diff_text = tds[3].get_text().strip().replace("+", "")
+        difference = parse_int(diff_text)
+
+        finish_position = parse_int(tds[4].get_text())
+        finish_points = parse_int(tds[5].get_text())
+
+        try:
+            ranking_model = RankingModel(
+                season=season,
+                player_name=player_name,
+                player_url=player_url,
+                start_position=start_position,
+                start_points=start_points,
+                difference=difference,
+                finish_position=finish_position,
+                finish_points=finish_points,
+            )
+            data.append(ranking_model.model_dump())
+        except Exception as e:
+            logger.error(f"Validation failed for ranking row: {e}")
+
+    return data
+
+
+def scrape_rankings(seasons: List[str]) -> List[Dict[str, Any]]:
+    """Scrapes rankings for a list of season names.
+
+    Args:
+        seasons: List of season strings (e.g. ['2023-2024', '2024-2025']).
+
+    Returns:
+        List[Dict[str, Any]]: Aggregated ranking records parsed and validated.
+    """
+    data = []
+    for season in seasons:
+        url = f"https://cuetracker.net/Rankings/{season}"
+        try:
+            html = fetch_html(url)
+            parsed_data = parse_rankings(html, season)
+            data.extend(parsed_data)
+        except Exception as e:
+            logger.error(f"Error scraping rankings for season {season}: {e}")
+        time.sleep(0.5)
+    return data
+

@@ -56,3 +56,15 @@ class BreakModel(BaseModel):
     frame_num: int
     player_number: int = Field(ge=1, le=2)
     points: int
+
+
+class RankingModel(BaseModel):
+    season: str
+    player_name: str
+    player_url: str
+    start_position: Optional[int] = None
+    start_points: Optional[int] = None
+    difference: Optional[int] = None
+    finish_position: Optional[int] = None
+    finish_points: Optional[int] = None
+

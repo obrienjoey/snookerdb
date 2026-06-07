@@ -98,3 +98,27 @@ def test_sqlite_insert_and_queries(temp_db):
         assert res_matches.iloc[0]["match_id"] == 9999
         assert res_matches.iloc[0]["walkover"] == 0
         assert res_matches.iloc[0]["date"] == "05 Jun 2026"
+
+        # Rankings insertion and verification
+        rankings_data = [
+            {
+                "season": "2026-2027",
+                "player_name": "Judd Trump",
+                "player_url": "https://cuetracker.net/players/judd-trump",
+                "start_position": 4,
+                "start_points": 556000,
+                "difference": 3,
+                "finish_position": 1,
+                "finish_points": 1984200,
+            }
+        ]
+        rankings_df = pd.DataFrame(rankings_data)
+        rankings_df.to_sql("rankings", conn, if_exists="append", index=False)
+
+        res_rankings = pd.read_sql_query("SELECT * FROM rankings", conn)
+        assert len(res_rankings) == 1
+        assert res_rankings.iloc[0]["season"] == "2026-2027"
+        assert res_rankings.iloc[0]["player_name"] == "Judd Trump"
+        assert res_rankings.iloc[0]["start_position"] == 4
+        assert res_rankings.iloc[0]["finish_points"] == 1984200
+

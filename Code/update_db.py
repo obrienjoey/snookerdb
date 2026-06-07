@@ -360,3 +360,24 @@ with sqlite3.connect(db_path) as conn:
                 updates,
             )
             conn.commit()
+
+    # 10. Update Rankings
+    try:
+        active_season_names = [season_urls[0][-9:]]
+        if len(season_urls) > 1:
+            active_season_names.append(season_urls[1][-9:])
+
+        logger.info(f"Updating rankings for active seasons: {active_season_names}")
+        scraped_rankings = scraper.scrape_rankings(active_season_names)
+        rankings_df = pd.DataFrame(scraped_rankings)
+
+        if len(rankings_df) > 0:
+            cursor = conn.cursor()
+            for s in active_season_names:
+                cursor.execute("DELETE FROM rankings WHERE season = ?", (s,))
+            conn.commit()
+            rankings_df.to_sql("rankings", conn, if_exists="append", index=False)
+            logger.info("Rankings updated successfully.")
+    except Exception as e:
+        logger.error(f"Failed to update rankings: {e}")
+

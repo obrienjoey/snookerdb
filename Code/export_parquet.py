@@ -49,6 +49,8 @@ def sql_to_pq(table: str, conn: sqlite3.Connection):
         query = "SELECT * from frames ORDER BY CAST(match_id AS INTEGER), frame_num"
     elif table == "breaks":
         query = "SELECT * from breaks ORDER BY CAST(match_id AS INTEGER), frame_num, player_number, points DESC"
+    elif table == "rankings":
+        query = "SELECT * from rankings ORDER BY season, start_position, player_url"
     else:
         query = f"SELECT * from {table}"
 
@@ -62,6 +64,7 @@ def sql_to_pq(table: str, conn: sqlite3.Connection):
 
 logger.info(f"Connecting to database to export Parquet: {db_path}")
 with sqlite3.connect(db_path) as conn:
-    tables = ["players", "tournament", "matches", "frames", "breaks"]
+    tables = ["players", "tournament", "matches", "frames", "breaks", "rankings"]
     for table in tables:
         sql_to_pq(table, conn)
+

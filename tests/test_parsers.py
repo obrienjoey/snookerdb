@@ -5,6 +5,7 @@ from scraper import (
     parse_season_urls,
     parse_tournament_dates,
     parse_tournament_urls,
+    parse_rankings,
 )
 
 
@@ -147,3 +148,31 @@ def test_parse_frames_and_breaks():
     f, b = parse_frames_and_breaks(2, "Walkover")
     assert len(f) == 0
     assert len(b) == 0
+
+
+def test_parse_rankings(load_fixture):
+    html = load_fixture("rankings_page.html")
+    rankings = parse_rankings(html, "2024-2025")
+
+    assert len(rankings) == 3
+
+    # First ranking
+    assert rankings[0]["season"] == "2024-2025"
+    assert rankings[0]["player_name"] == "Judd Trump"
+    assert rankings[0]["player_url"] == "https://cuetracker.net/players/judd-trump"
+    assert rankings[0]["start_position"] == 4
+    assert rankings[0]["start_points"] == 556000
+    assert rankings[0]["difference"] == 3
+    assert rankings[0]["finish_position"] == 1
+    assert rankings[0]["finish_points"] == 1984200
+
+    # Second ranking (negative difference)
+    assert rankings[1]["player_name"] == "Ronnie O'Sullivan"
+    assert rankings[1]["difference"] == -2
+
+    # Third ranking (missing points and difference)
+    assert rankings[2]["player_name"] == "No Points Player"
+    assert rankings[2]["start_points"] is None
+    assert rankings[2]["difference"] is None
+    assert rankings[2]["finish_points"] is None
+

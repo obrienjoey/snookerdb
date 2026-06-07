@@ -56,3 +56,16 @@ CREATE TABLE IF NOT EXISTS breaks (
     points INTEGER,
     FOREIGN KEY(match_id) REFERENCES matches(match_id)
 );
+
+CREATE TABLE IF NOT EXISTS rankings (
+    season TEXT,
+    player_name TEXT,
+    player_url TEXT,
+    start_position INTEGER,
+    start_points INTEGER,
+    difference INTEGER,
+    finish_position INTEGER,
+    finish_points INTEGER,
+    PRIMARY KEY (season, player_url)
+);
+
