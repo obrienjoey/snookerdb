@@ -127,3 +127,7 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Project-specific ignored files
+snookerdb_feature_gap_analysis.md
+temp_uk.html
