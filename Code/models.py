@@ -17,6 +17,13 @@ class TournamentModel(BaseModel):
     name: str
     season: str
     category: str
+    venue: Optional[str] = None
+    city: Optional[str] = None
+    country: Optional[str] = None
+    sponsor: Optional[str] = None
+    prize_fund: Optional[str] = None
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
 
 
 class MatchModel(BaseModel):
@@ -33,6 +40,8 @@ class MatchModel(BaseModel):
     player_2_url: str
     scores: Optional[str] = None
     walkover: int = Field(default=0, ge=0, le=1)
+    winner: Optional[str] = None
+    winner_url: Optional[str] = None
 
 
 class FrameModel(BaseModel):

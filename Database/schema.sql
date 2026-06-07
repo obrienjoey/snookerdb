@@ -11,7 +11,14 @@ CREATE TABLE IF NOT EXISTS tournament (
     dates TEXT,
     name TEXT,
     season TEXT,
-    category TEXT
+    category TEXT,
+    venue TEXT,
+    city TEXT,
+    country TEXT,
+    sponsor TEXT,
+    prize_fund TEXT,
+    start_date TEXT,
+    end_date TEXT
 );
 
 CREATE TABLE IF NOT EXISTS matches (
@@ -28,6 +35,8 @@ CREATE TABLE IF NOT EXISTS matches (
     player_2_url TEXT,
     scores TEXT,
     walkover INTEGER,
+    winner TEXT,
+    winner_url TEXT,
     FOREIGN KEY(tourn_id) REFERENCES tournament(tourn_id)
 );
 

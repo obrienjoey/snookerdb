@@ -15,12 +15,97 @@ from urllib3.util import Retry
 logger = logging.getLogger("snookerdb")
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     handler.setFormatter(formatter)
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
 
 _session = None
+
+
+def parse_date_to_iso(date_str: str) -> Union[str, None]:
+    if not date_str:
+        return None
+    try:
+        from datetime import datetime
+
+        return datetime.strptime(date_str.strip(), "%d %b %Y").strftime("%Y-%m-%d")
+    except ValueError:
+        return None
+
+
+def parse_tournament_dates(dates_str: str) -> tuple[Union[str, None], Union[str, None]]:
+    if not dates_str:
+        return None, None
+    import re
+    from datetime import datetime
+
+    dates_str = dates_str.strip()
+    if " to " in dates_str:
+        start_str, end_str = dates_str.split(" to ")
+        end_date = None
+        try:
+            end_date_obj = datetime.strptime(end_str.strip(), "%d %b %Y")
+            end_date = end_date_obj.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+
+        start_date = None
+        start_str = start_str.strip()
+        if re.match(r"^\d{2} [a-zA-Z]{3} \d{4}$", start_str):
+            try:
+                start_date = datetime.strptime(start_str, "%d %b %Y").strftime("%Y-%m-%d")
+            except Exception:
+                pass
+        elif re.match(r"^\d{2} [a-zA-Z]{3}$", start_str) and end_date:
+            try:
+                start_date = datetime.strptime(start_str + " " + end_date[:4], "%d %b %Y").strftime("%Y-%m-%d")
+            except Exception:
+                pass
+        elif re.match(r"^\d{2}$", start_str) and end_date:
+            try:
+                start_date = end_date[:8] + start_str
+            except Exception:
+                pass
+        return start_date, end_date
+    else:
+        try:
+            dt = datetime.strptime(dates_str, "%d %b %Y").strftime("%Y-%m-%d")
+            return dt, dt
+        except Exception:
+            return None, None
+
+
+def parse_tournament_details(html: str) -> Dict[str, str]:
+    soup = BeautifulSoup(html, "html.parser")
+    text = soup.get_text(separator=" ", strip=True)
+    details = {"venue": "", "city": "", "country": "", "sponsor": "", "prize_fund": ""}
+
+    loc_match = re.search(r"Location:\s*(.*?)(?=\s*(?:Players:|Matches:|Status:|Dates:|Prize fund:|$))", text)
+    if loc_match:
+        loc_str = loc_match.group(1).strip()
+        sponsor_match = re.search(r"(.*?)\s+Sponsor:\s*(.*?)(?=\s*Broadcaster:|$)", loc_str)
+        if sponsor_match:
+            loc_str = sponsor_match.group(1).strip()
+            details["sponsor"] = sponsor_match.group(2).strip()
+
+        parts = [x.strip() for x in loc_str.split(",")]
+        if len(parts) >= 3:
+            details["venue"] = parts[0]
+            details["city"] = parts[1]
+            details["country"] = parts[2]
+        elif len(parts) == 2:
+            details["city"] = parts[0]
+            details["country"] = parts[1]
+        elif len(parts) == 1:
+            details["country"] = parts[0]
+
+    prize_match = re.search(r"Prize fund:\s*(.*?)(?=\s*(?:Points scored:|Status:|Location:|$))", text)
+    if prize_match:
+        details["prize_fund"] = prize_match.group(1).strip()
+
+    return details
+
 
 def get_session() -> requests.Session:
     """Retrieves or initializes a requests Session object.
@@ -36,20 +121,14 @@ def get_session() -> requests.Session:
     global _session
     if _session is None:
         _session = requests.Session()
-        _session.headers.update({
-            "User-Agent": "SnookerDB/1.0 (+https://github.com/obrienjoey/snookerdb)"
-        })
+        _session.headers.update({"User-Agent": "SnookerDB/1.0 (+https://github.com/obrienjoey/snookerdb)"})
         # Retry on status codes 429, 500, 502, 503, 504 with an exponential backoff
-        retries = Retry(
-            total=3,
-            backoff_factor=1,
-            status_forcelist=[429, 500, 502, 503, 504],
-            raise_on_status=False
-        )
+        retries = Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 502, 503, 504], raise_on_status=False)
         adapter = HTTPAdapter(max_retries=retries)
         _session.mount("http://", adapter)
         _session.mount("https://", adapter)
     return _session
+
 
 def fetch_html(url: str) -> str:
     """Fetches the raw HTML content from a given URL.
@@ -72,6 +151,7 @@ def fetch_html(url: str) -> str:
         logger.error(f"HTTP request failed for {url}: {e}")
         raise
 
+
 def parse_player_details(html: str) -> List[Dict[str, str]]:
     """Parses player profile list data from a listing page.
 
@@ -85,25 +165,25 @@ def parse_player_details(html: str) -> List[Dict[str, str]]:
         List[Dict[str, str]]: A list of dictionaries representing validated player profiles.
     """
     soup = BeautifulSoup(html, features="html.parser")
-    tables = soup.find_all('table')
+    tables = soup.find_all("table")
     if not tables:
         logger.warning("No table found in player details HTML")
         return []
 
-    rows = tables[0].find_all('tr')
+    rows = tables[0].find_all("tr")
     data = []
     for row in rows:
-        entries = row.find_all('a')
+        entries = row.find_all("a")
         if len(entries) < 2:
             continue
 
         # Safely convert to str to satisfy mypy
-        url_attr = entries[0].get('href')
-        url = str(url_attr) if url_attr else ''
+        url_attr = entries[0].get("href")
+        url = str(url_attr) if url_attr else ""
 
         first_name = entries[0].get_text().strip()
         surname = entries[1].get_text().strip()
-        nationality = 'NA'
+        nationality = "NA"
         if len(entries) >= 3:
             try:
                 nationality = entries[2].get_text().lstrip()
@@ -118,6 +198,7 @@ def parse_player_details(html: str) -> List[Dict[str, str]]:
 
     return data
 
+
 def player_details(surname_initials: List[str], error_log: bool = True) -> List[Dict[str, str]]:
     """Scrapes player information for a list of surname starting initials.
 
@@ -130,7 +211,7 @@ def player_details(surname_initials: List[str], error_log: bool = True) -> List[
     """
     data = []
     for surname_initial in surname_initials:
-        full_url = f'https://cuetracker.net/players/{surname_initial}'
+        full_url = f"https://cuetracker.net/players/{surname_initial}"
         try:
             html = fetch_html(full_url)
             parsed_data = parse_player_details(html)
@@ -139,6 +220,7 @@ def player_details(surname_initials: List[str], error_log: bool = True) -> List[
             logger.error(f"Error scraping players starting with '{surname_initial}': {e}")
         logger.info(f"Finished with initials beginning with {surname_initial}")
     return data
+
 
 def parse_season_urls(html: str) -> List[str]:
     """Parses season links from the main seasons overview page.
@@ -153,16 +235,17 @@ def parse_season_urls(html: str) -> List[str]:
     """
     soup = BeautifulSoup(html, features="html.parser")
     season_urls = []
-    href_tags = soup.find_all('a', href=True)
+    href_tags = soup.find_all("a", href=True)
     for href_tag in href_tags:
-        href_val = href_tag.get('href')
+        href_val = href_tag.get("href")
         if not href_val:
             continue
         href_str = str(href_val)
-        match = re.search(r'/(\d{4}-\d{4})\Z', href_str)
+        match = re.search(r"/(\d{4}-\d{4})\Z", href_str)
         if match:
             season_urls.append(href_str)
     return season_urls
+
 
 def season_urls() -> List[str]:
     """Fetches and parses the complete index of season URLs.
@@ -171,11 +254,12 @@ def season_urls() -> List[str]:
         List[str]: A list of full season paths.
     """
     try:
-        html = fetch_html('https://cuetracker.net/seasons')
+        html = fetch_html("https://cuetracker.net/seasons")
         return parse_season_urls(html)
     except Exception as e:
         logger.error(f"Error fetching season URLs: {e}")
         raise
+
 
 def parse_tournament_urls(html: str, season: str) -> List[Dict[str, Any]]:
     """Parses tournament listing tables for a single season page.
@@ -188,23 +272,23 @@ def parse_tournament_urls(html: str, season: str) -> List[Dict[str, Any]]:
         List[Dict[str, Any]]: List of validated tournament dictionaries.
     """
     soup = BeautifulSoup(html, features="html.parser")
-    tables = soup.find_all('table')
+    tables = soup.find_all("table")
     if len(tables) < 3:
         logger.warning(f"Expected at least 3 tables for season {season}, found {len(tables)}")
         return []
 
-    rows = tables[2].find_all('tr')
+    rows = tables[2].find_all("tr")
     data = []
     for row in rows:
-        tds = row.find_all('td')
+        tds = row.find_all("td")
         if len(tds) < 3:
             continue
         dates = tds[0].get_text().strip()
         name = tds[1].get_text().strip()
-        links = tds[1].find_all('a')
+        links = tds[1].find_all("a")
         if not links:
             continue
-        url_attr = links[0].get('href')
+        url_attr = links[0].get("href")
         if not url_attr:
             continue
         url = str(url_attr)
@@ -218,6 +302,8 @@ def parse_tournament_urls(html: str, season: str) -> List[Dict[str, Any]]:
 
         category = tds[2].get_text().strip()
 
+        start_date, end_date = parse_tournament_dates(dates)
+
         try:
             tourn_model = TournamentModel(
                 tourn_id=tourn_id,
@@ -225,13 +311,16 @@ def parse_tournament_urls(html: str, season: str) -> List[Dict[str, Any]]:
                 dates=dates,
                 name=name,
                 season=season,
-                category=category
+                category=category,
+                start_date=start_date,
+                end_date=end_date,
             )
             data.append(tourn_model.model_dump())
         except Exception as e:
             logger.error(f"Validation failed for tournament with ID {tourn_id} under season {season}: {e}")
 
     return data
+
 
 def tournament_urls(season_urls: Union[List[str], str]) -> List[Dict[str, Any]]:
     """Scrapes all tournament listings for the given season URLs.
@@ -257,6 +346,7 @@ def tournament_urls(season_urls: Union[List[str], str]) -> List[Dict[str, Any]]:
         logger.info(f"Finished scraping tournament info for season: {season}")
     return data
 
+
 def parse_matches(html: str, tourn_id: int) -> List[List[Any]]:
     """Parses individual match lines from a tournament page.
 
@@ -272,11 +362,11 @@ def parse_matches(html: str, tourn_id: int) -> List[List[Any]]:
             ordered matching database schemas.
     """
     soup = BeautifulSoup(html, features="html.parser")
-    regex = re.compile('.*match row.*')
+    regex = re.compile(".*match row.*")
     matches = soup.find_all("div", {"class": regex})
     data = []
     for match in matches:
-        match_id_attr = match.get('data-match-id')
+        match_id_attr = match.get("data-match-id")
         if not match_id_attr:
             continue
 
@@ -287,72 +377,90 @@ def parse_matches(html: str, tourn_id: int) -> List[List[Any]]:
             logger.error(f"Could not parse match ID '{match_id_str}' as int under tournament {tourn_id}")
             continue
 
-        h5_tag = match.find('h5')
-        stage = h5_tag.get_text().strip() if h5_tag else 'Unknown Stage'
+        h5_tag = match.find("h5")
+        stage = h5_tag.get_text().strip() if h5_tag else "Unknown Stage"
 
-        best_of_tag = match.find('span', {'class': 'best_of text-nowrap'})
-        best_of_str = best_of_tag.get_text().strip().strip('()') if best_of_tag else ''
+        best_of_tag = match.find("span", {"class": "best_of text-nowrap"})
+        best_of_str = best_of_tag.get_text().strip().strip("()") if best_of_tag else ""
         try:
             best_of = int(best_of_str)
         except ValueError:
             best_of = None
 
-        p1_score_tag = match.find('span', {'class': 'matchResultText text-nowrap float-left player_1_score'})
-        player_1_score_str = p1_score_tag.get_text().strip() if p1_score_tag else ''
+        p1_score_tag = match.find("span", {"class": "matchResultText text-nowrap float-left player_1_score"})
+        player_1_score_str = p1_score_tag.get_text().strip() if p1_score_tag else ""
         try:
             player_1_score = int(player_1_score_str)
         except ValueError:
             player_1_score = None
 
-        p2_score_tag = match.find('span', {'class': 'matchResultText text-nowrap float-right player_2_score'})
-        player_2_score_str = p2_score_tag.get_text().strip() if p2_score_tag else ''
+        p2_score_tag = match.find("span", {"class": "matchResultText text-nowrap float-right player_2_score"})
+        player_2_score_str = p2_score_tag.get_text().strip() if p2_score_tag else ""
         try:
             player_2_score = int(player_2_score_str)
         except ValueError:
             player_2_score = None
 
-        p1_div = match.find('div', {'class': 'player_1_name matchResultText mx-auto'})
+        p1_div = match.find("div", {"class": "player_1_name matchResultText mx-auto"})
         if p1_div:
-            player_1 = p1_div.get_text().strip().replace(' (Walkover)', '')
-            p1_a = p1_div.find('a')
+            player_1 = p1_div.get_text().strip().replace(" (Walkover)", "")
+            p1_a = p1_div.find("a")
             if p1_a:
-                p1_href = p1_a.get('href')
-                p1_href_str = str(p1_href[0]) if isinstance(p1_href, list) else str(p1_href) if p1_href else ''
-                player_1_url = p1_href_str.rsplit('/', 2)[0] if p1_href_str else ''
+                p1_href = p1_a.get("href")
+                p1_href_str = str(p1_href[0]) if isinstance(p1_href, list) else str(p1_href) if p1_href else ""
+                player_1_url = p1_href_str.rsplit("/", 2)[0] if p1_href_str else ""
             else:
-                player_1_url = ''
+                player_1_url = ""
         else:
-            player_1, player_1_url = 'Unknown', ''
+            player_1, player_1_url = "Unknown", ""
 
-        p2_div = match.find('div', {'class': 'player_2_name matchResultText mx-auto'})
+        p2_div = match.find("div", {"class": "player_2_name matchResultText mx-auto"})
         if p2_div:
-            player_2 = p2_div.get_text().strip().replace(' (Walkover)', '')
-            p2_a = p2_div.find('a')
+            player_2 = p2_div.get_text().strip().replace(" (Walkover)", "")
+            p2_a = p2_div.find("a")
             if p2_a:
-                p2_href = p2_a.get('href')
-                p2_href_str = str(p2_href[0]) if isinstance(p2_href, list) else str(p2_href) if p2_href else ''
-                player_2_url = p2_href_str.rsplit('/', 2)[0] if p2_href_str else ''
+                p2_href = p2_a.get("href")
+                p2_href_str = str(p2_href[0]) if isinstance(p2_href, list) else str(p2_href) if p2_href else ""
+                player_2_url = p2_href_str.rsplit("/", 2)[0] if p2_href_str else ""
             else:
-                player_2_url = ''
+                player_2_url = ""
         else:
-            player_2, player_2_url = 'Unknown', ''
+            player_2, player_2_url = "Unknown", ""
 
-        if ' (Walkover)' in match.get_text():
+        if " (Walkover)" in match.get_text():
             date = None
             scores = None
             walkover = 1
         else:
             date = None
-            played_on_div = match.find('div', {'class': 'col-12 played_on'})
+            played_on_div = match.find("div", {"class": "col-12 played_on"})
             if played_on_div:
-                date = played_on_div.get_text().strip()
+                date = parse_date_to_iso(played_on_div.get_text().strip())
 
             scores = None
-            frame_scores_div = match.find('div', {'class': 'col-12 frame_scores'})
+            frame_scores_div = match.find("div", {"class": "col-12 frame_scores"})
             if frame_scores_div:
                 scores = frame_scores_div.get_text().strip()
 
             walkover = 0
+
+        winner = None
+        winner_url = None
+        if walkover:
+            # Look at match text to see who won walkover
+            # Typically CueTracker uses ' (Walkover)' next to the winning player's name
+            p1_div_text = p1_div.get_text() if p1_div else ""
+            p2_div_text = p2_div.get_text() if p2_div else ""
+            if "Walkover" in p1_div_text:
+                winner, winner_url = player_1, player_1_url
+            elif "Walkover" in p2_div_text:
+                winner, winner_url = player_2, player_2_url
+        else:
+            if player_1_score is not None and player_2_score is not None:
+                if player_1_score > player_2_score:
+                    winner, winner_url = player_1, player_1_url
+                elif player_2_score > player_1_score:
+                    winner, winner_url = player_2, player_2_url
 
         try:
             match_model = MatchModel(
@@ -368,17 +476,34 @@ def parse_matches(html: str, tourn_id: int) -> List[List[Any]]:
                 player_2=player_2,
                 player_2_url=player_2_url,
                 scores=scores,
-                walkover=walkover
+                walkover=walkover,
+                winner=winner,
+                winner_url=winner_url,
             )
-            data.append([
-                match_model.tourn_id, match_model.match_id, match_model.date, match_model.stage, match_model.best_of,
-                match_model.player_1_score, match_model.player_2_score, match_model.player_1, match_model.player_1_url,
-                match_model.player_2, match_model.player_2_url, match_model.scores, match_model.walkover
-            ])
+            data.append(
+                [
+                    match_model.tourn_id,
+                    match_model.match_id,
+                    match_model.date,
+                    match_model.stage,
+                    match_model.best_of,
+                    match_model.player_1_score,
+                    match_model.player_2_score,
+                    match_model.player_1,
+                    match_model.player_1_url,
+                    match_model.player_2,
+                    match_model.player_2_url,
+                    match_model.scores,
+                    match_model.walkover,
+                    match_model.winner,
+                    match_model.winner_url,
+                ]
+            )
         except Exception as e:
             logger.error(f"Validation failed for match with ID {match_id} under tournament {tourn_id}: {e}")
 
     return data
+
 
 def matches_scrape(tournament_urls: Union[List[str], str]) -> List[List[Any]]:
     """Scrapes and compiles match data for the given tournament URLs.
@@ -394,7 +519,7 @@ def matches_scrape(tournament_urls: Union[List[str], str]) -> List[List[Any]]:
     data = []
     counter = 0
     for tourn_url in tournament_urls:
-        tourn_id_str = tourn_url.rsplit('/', 1)[1]
+        tourn_id_str = tourn_url.rsplit("/", 1)[1]
         try:
             tourn_id = int(tourn_id_str)
         except ValueError:
@@ -413,6 +538,7 @@ def matches_scrape(tournament_urls: Union[List[str], str]) -> List[List[Any]]:
         logger.info(f"Tournament {counter} / {len(tournament_urls)} ({pct:.2f} %) scraped")
     return data
 
+
 def parse_frames_and_breaks(match_id: int, scores_str: str) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Parses a frame scores string into structured frame and break data.
 
@@ -425,60 +551,47 @@ def parse_frames_and_breaks(match_id: int, scores_str: str) -> tuple[List[Dict[s
     """
     frames = []
     breaks = []
-    if not scores_str or 'Walkover' in scores_str:
+    if not scores_str or "Walkover" in scores_str:
         return frames, breaks
 
-    frame_strs = [f.strip() for f in scores_str.split(';')]
+    frame_strs = [f.strip() for f in scores_str.split(";")]
     frame_num = 1
     for frame_str in frame_strs:
         if not frame_str:
             continue
 
-        parts = frame_str.split('-')
+        parts = frame_str.split("-")
         if len(parts) != 2:
             continue
 
         p1_part, p2_part = parts[0].strip(), parts[1].strip()
 
-        m1 = re.match(r'^(\d+)(?:\(([\d,]+)\))?$', p1_part)
-        m2 = re.match(r'^(\d+)(?:\(([\d,]+)\))?$', p2_part)
+        m1 = re.match(r"^(\d+)(?:\(([\d,]+)\))?$", p1_part)
+        m2 = re.match(r"^(\d+)(?:\(([\d,]+)\))?$", p2_part)
 
         if not m1 or not m2:
             continue
 
         p1_score = int(m1.group(1))
         p1_breaks_str = m1.group(2)
-        p1_breaks = [int(b) for b in p1_breaks_str.split(',')] if p1_breaks_str else []
+        p1_breaks = [int(b) for b in p1_breaks_str.split(",")] if p1_breaks_str else []
 
         p2_score = int(m2.group(1))
         p2_breaks_str = m2.group(2)
-        p2_breaks = [int(b) for b in p2_breaks_str.split(',')] if p2_breaks_str else []
+        p2_breaks = [int(b) for b in p2_breaks_str.split(",")] if p2_breaks_str else []
 
         try:
             frame_model = FrameModel(
-                match_id=match_id,
-                frame_num=frame_num,
-                player_1_score=p1_score,
-                player_2_score=p2_score
+                match_id=match_id, frame_num=frame_num, player_1_score=p1_score, player_2_score=p2_score
             )
             frames.append(frame_model.model_dump())
 
             for brk in p1_breaks:
-                break_model = BreakModel(
-                    match_id=match_id,
-                    frame_num=frame_num,
-                    player_number=1,
-                    points=brk
-                )
+                break_model = BreakModel(match_id=match_id, frame_num=frame_num, player_number=1, points=brk)
                 breaks.append(break_model.model_dump())
 
             for brk in p2_breaks:
-                break_model = BreakModel(
-                    match_id=match_id,
-                    frame_num=frame_num,
-                    player_number=2,
-                    points=brk
-                )
+                break_model = BreakModel(match_id=match_id, frame_num=frame_num, player_number=2, points=brk)
                 breaks.append(break_model.model_dump())
 
         except Exception as e:

@@ -40,6 +40,23 @@ with sqlite3.connect(db_path) as conn:
     conn.executescript(schema_sql)
     conn.commit()
 
+    # Apply missing columns for migration
+    try:
+        conn.execute("ALTER TABLE matches ADD COLUMN winner TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        conn.execute("ALTER TABLE matches ADD COLUMN winner_url TEXT")
+    except sqlite3.OperationalError:
+        pass
+
+    for col in ["venue", "city", "country", "sponsor", "prize_fund", "start_date", "end_date"]:
+        try:
+            conn.execute(f"ALTER TABLE tournament ADD COLUMN {col} TEXT")
+        except sqlite3.OperationalError:
+            pass
+    conn.commit()
+
 # 2. Fetch tournament urls and scrape
 logger.info("Scraping season and tournament list...")
 season_urls = scraper.season_urls()
@@ -69,10 +86,11 @@ local_tourn_ids = set(local_tourn_df["tourn_id"].astype(str))
 local_player_urls = set(local_player_df["url"].str.lower())
 
 # Identify completed tournaments (those with a Final match that has a result)
-completed_tourn_ids = set(local_match_df[
-    (local_match_df['stage'] == 'Final') & 
-    (local_match_df['scores'].notna() | (local_match_df['walkover'] == 1))
-]['tourn_id'].astype(str))
+completed_tourn_ids = set(
+    local_match_df[
+        (local_match_df["stage"] == "Final") & (local_match_df["scores"].notna() | (local_match_df["walkover"] == 1))
+    ]["tourn_id"].astype(str)
+)
 
 # Filter tournaments: only scrape if they are new or not completed
 active_tourn_df = tourn_df[~tourn_df["tourn_id"].astype(str).isin(completed_tourn_ids)]
@@ -83,18 +101,44 @@ if len(active_tourn_df) > 0:
     match_df = pd.DataFrame(
         match_data,
         columns=[
-            "tourn_id", "match_id", "date", "stage", "best_of", "player_1_score",
-            "player_2_score", "player_1", "player_1_url", "player_2", "player_2_url",
-            "scores", "walkover",
+            "tourn_id",
+            "match_id",
+            "date",
+            "stage",
+            "best_of",
+            "player_1_score",
+            "player_2_score",
+            "player_1",
+            "player_1_url",
+            "player_2",
+            "player_2_url",
+            "scores",
+            "walkover",
+            "winner",
+            "winner_url",
         ],
     )
 else:
     logger.info("No active tournaments to scrape matches for.")
-    match_df = pd.DataFrame(columns=[
-        "tourn_id", "match_id", "date", "stage", "best_of", "player_1_score",
-        "player_2_score", "player_1", "player_1_url", "player_2", "player_2_url",
-        "scores", "walkover",
-    ])
+    match_df = pd.DataFrame(
+        columns=[
+            "tourn_id",
+            "match_id",
+            "date",
+            "stage",
+            "best_of",
+            "player_1_score",
+            "player_2_score",
+            "player_1",
+            "player_1_url",
+            "player_2",
+            "player_2_url",
+            "scores",
+            "walkover",
+            "winner",
+            "winner_url",
+        ]
+    )
 
 # Identify new tournaments and matches
 new_tourn_df = tourn_df[~tourn_df["tourn_id"].astype(str).isin(local_tourn_ids)]
@@ -184,14 +228,12 @@ with sqlite3.connect(db_path) as conn:
         # If frames table is completely empty or just created, it might cause an issue.
         local_frames_match_ids = set()
 
-    missing_frames_matches = local_match_df[
-        ~local_match_df['match_id'].astype(str).isin(local_frames_match_ids)
-    ]
+    missing_frames_matches = local_match_df[~local_match_df["match_id"].astype(str).isin(local_frames_match_ids)]
 
     missing_frames_matches = missing_frames_matches[
-        missing_frames_matches['scores'].notna() &
-        (missing_frames_matches['scores'] != '') &
-        (~missing_frames_matches['scores'].str.contains('Walkover', na=False))
+        missing_frames_matches["scores"].notna()
+        & (missing_frames_matches["scores"] != "")
+        & (~missing_frames_matches["scores"].str.contains("Walkover", na=False))
     ]
 
     if len(missing_frames_matches) > 0:
@@ -215,3 +257,106 @@ with sqlite3.connect(db_path) as conn:
         logger.info("Backfill complete.")
     else:
         logger.info("No historical matches require frame backfilling.")
+
+    # 6. Backfill Winner Data
+    matches_needing_winners = pd.read_sql_query(
+        "SELECT match_id, player_1_score, player_2_score, player_1, player_1_url, "
+        "player_2, player_2_url, walkover FROM matches WHERE winner IS NULL AND "
+        "(player_1_score IS NOT NULL OR walkover = 1)",
+        conn,
+    )
+    if len(matches_needing_winners) > 0:
+        logger.info(f"Backfilling winners for {len(matches_needing_winners)} matches...")
+        updates = []
+        for row in matches_needing_winners.to_dict("records"):
+            w, w_url = None, None
+            try:
+                if row["walkover"] == 1:
+                    p1 = row["player_1"] or ""
+                    p2 = row["player_2"] or ""
+                    if "Walkover" in p1:
+                        w, w_url = p1.replace(" (Walkover)", ""), row["player_1_url"]
+                    elif "Walkover" in p2:
+                        w, w_url = p2.replace(" (Walkover)", ""), row["player_2_url"]
+                else:
+                    p1_s, p2_s = row["player_1_score"], row["player_2_score"]
+                    if pd.notna(p1_s) and pd.notna(p2_s):
+                        if p1_s > p2_s:
+                            w, w_url = row["player_1"], row["player_1_url"]
+                        elif p2_s > p1_s:
+                            w, w_url = row["player_2"], row["player_2_url"]
+                if w is not None:
+                    updates.append((w, w_url, row["match_id"]))
+            except Exception:
+                pass
+        if updates:
+            conn.executemany("UPDATE matches SET winner = ?, winner_url = ? WHERE match_id = ?", updates)
+            conn.commit()
+
+    # 7. Backfill Match Dates to ISO 8601
+    matches_needing_dates = pd.read_sql_query("SELECT match_id, date FROM matches WHERE date LIKE '% %'", conn)
+    if len(matches_needing_dates) > 0:
+        logger.info(f"Backfilling ISO dates for {len(matches_needing_dates)} matches...")
+        updates = []
+        for row in matches_needing_dates.to_dict("records"):
+            d = scraper.parse_date_to_iso(row["date"])
+            if d:
+                updates.append((d, row["match_id"]))
+        if updates:
+            conn.executemany("UPDATE matches SET date = ? WHERE match_id = ?", updates)
+            conn.commit()
+
+    # 8. Backfill Tournament Start/End Dates
+    tournaments_needing_dates = pd.read_sql_query(
+        "SELECT tourn_id, dates FROM tournament WHERE start_date IS NULL AND dates IS NOT NULL", conn
+    )
+    if len(tournaments_needing_dates) > 0:
+        logger.info(f"Backfilling start/end dates for {len(tournaments_needing_dates)} tournaments...")
+        updates = []
+        for row in tournaments_needing_dates.to_dict("records"):
+            sd, ed = scraper.parse_tournament_dates(row["dates"])
+            if sd or ed:
+                updates.append((sd, ed, row["tourn_id"]))
+        if updates:
+            conn.executemany("UPDATE tournament SET start_date = ?, end_date = ? WHERE tourn_id = ?", updates)
+            conn.commit()
+
+    # 9. Backfill Tournament Metadata (Venue, Prize etc.)
+    tournaments_needing_metadata = pd.read_sql_query(
+        "SELECT tourn_id, url FROM tournament WHERE venue IS NULL AND city IS NULL", conn
+    )
+    if len(tournaments_needing_metadata) > 0:
+        logger.info(
+            f"Backfilling metadata for {len(tournaments_needing_metadata)} tournaments. This may take a while..."
+        )
+        updates = []
+        for idx, row in enumerate(tournaments_needing_metadata.to_dict("records")):
+            url = row["url"]
+            try:
+                html = scraper.fetch_html(url)
+                details = scraper.parse_tournament_details(html)
+                updates.append(
+                    (
+                        details.get("venue"),
+                        details.get("city"),
+                        details.get("country"),
+                        details.get("sponsor"),
+                        details.get("prize_fund"),
+                        row["tourn_id"],
+                    )
+                )
+            except Exception:
+                pass
+            import time
+
+            time.sleep(0.3)
+            if idx % 50 == 0 and idx > 0:
+                logger.info(f"Backfilled {idx}/{len(tournaments_needing_metadata)} tournaments...")
+
+        if updates:
+            conn.executemany(
+                "UPDATE tournament SET venue = ?, city = ?, country = ?, "
+                "sponsor = ?, prize_fund = ? WHERE tourn_id = ?",
+                updates,
+            )
+            conn.commit()
