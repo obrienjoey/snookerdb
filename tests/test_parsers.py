@@ -2,10 +2,10 @@ from scraper import (
     parse_date_to_iso,
     parse_matches,
     parse_player_details,
+    parse_rankings,
     parse_season_urls,
     parse_tournament_dates,
     parse_tournament_urls,
-    parse_rankings,
 )
 
 

@@ -111,8 +111,9 @@ def run_analytics(players, tournaments, matches, frames, breaks, rankings):
         centuries_with_players = centuries.merge(match_player_map, on="match_id")
 
         # Get the URL of the player who made the break
-        centuries_with_players["player_url"] = centuries_with_players.apply(
-            lambda r: r["player_1_url"] if r["player_number"] == 1 else r["player_2_url"], axis=1
+        p1_mask = centuries_with_players["player_number"] == 1
+        centuries_with_players["player_url"] = centuries_with_players["player_1_url"].where(
+            p1_mask, centuries_with_players["player_2_url"]
         )
 
         century_counts = centuries_with_players["player_url"].value_counts().reset_index()

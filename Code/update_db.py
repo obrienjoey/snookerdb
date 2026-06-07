@@ -11,6 +11,7 @@ import logging
 import sqlite3
 import string
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import scraper
@@ -204,12 +205,12 @@ with sqlite3.connect(db_path) as conn:
         logger.info("Database update successful.")
 
         logger.info(f"Parsing frames and breaks for {len(new_match_df)} new matches...")
-        new_frames = []
-        new_breaks = []
+        new_frames: list[dict[str, Any]] = []
+        new_breaks: list[dict[str, Any]] = []
         for idx, row in new_match_df.iterrows():
-            f, b = scraper.parse_frames_and_breaks(row["match_id"], row["scores"])
-            new_frames.extend(f)
-            new_breaks.extend(b)
+            frames_list, breaks_list = scraper.parse_frames_and_breaks(row["match_id"], row["scores"])
+            new_frames.extend(frames_list)
+            new_breaks.extend(breaks_list)
 
         if new_frames:
             logger.info(f"Inserting {len(new_frames)} new frames...")
@@ -238,15 +239,15 @@ with sqlite3.connect(db_path) as conn:
 
     if len(missing_frames_matches) > 0:
         logger.info(f"Backfilling frames for {len(missing_frames_matches)} historical matches...")
-        backfill_frames = []
-        backfill_breaks = []
+        backfill_frames: list[dict[str, Any]] = []
+        backfill_breaks: list[dict[str, Any]] = []
 
         # To avoid massive memory usage, we could chunk it, but the total number of matches is ~100k,
         # frames list might be up to 1M rows. Let's do it in one go for now, or chunk by 10k matches.
         for idx, row in missing_frames_matches.iterrows():
-            f, b = scraper.parse_frames_and_breaks(row["match_id"], row["scores"])
-            backfill_frames.extend(f)
-            backfill_breaks.extend(b)
+            frames_list, breaks_list = scraper.parse_frames_and_breaks(row["match_id"], row["scores"])
+            backfill_frames.extend(frames_list)
+            backfill_breaks.extend(breaks_list)
 
         if backfill_frames:
             logger.info(f"Inserting {len(backfill_frames)} backfilled frames...")
@@ -267,7 +268,7 @@ with sqlite3.connect(db_path) as conn:
     )
     if len(matches_needing_winners) > 0:
         logger.info(f"Backfilling winners for {len(matches_needing_winners)} matches...")
-        updates = []
+        updates: list[tuple[Any, ...]] = []
         for row in matches_needing_winners.to_dict("records"):
             w, w_url = None, None
             try:
@@ -297,7 +298,7 @@ with sqlite3.connect(db_path) as conn:
     matches_needing_dates = pd.read_sql_query("SELECT match_id, date FROM matches WHERE date LIKE '% %'", conn)
     if len(matches_needing_dates) > 0:
         logger.info(f"Backfilling ISO dates for {len(matches_needing_dates)} matches...")
-        updates = []
+        updates: list[tuple[Any, ...]] = []
         for row in matches_needing_dates.to_dict("records"):
             d = scraper.parse_date_to_iso(row["date"])
             if d:
@@ -312,7 +313,7 @@ with sqlite3.connect(db_path) as conn:
     )
     if len(tournaments_needing_dates) > 0:
         logger.info(f"Backfilling start/end dates for {len(tournaments_needing_dates)} tournaments...")
-        updates = []
+        updates: list[tuple[Any, ...]] = []
         for row in tournaments_needing_dates.to_dict("records"):
             sd, ed = scraper.parse_tournament_dates(row["dates"])
             if sd or ed:
@@ -329,7 +330,7 @@ with sqlite3.connect(db_path) as conn:
         logger.info(
             f"Backfilling metadata for {len(tournaments_needing_metadata)} tournaments. This may take a while..."
         )
-        updates = []
+        updates: list[tuple[Any, ...]] = []
         for idx, row in enumerate(tournaments_needing_metadata.to_dict("records")):
             url = row["url"]
             try:
