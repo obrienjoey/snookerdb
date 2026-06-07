@@ -20,53 +20,73 @@ graph TD
 
 ## Database Schema & Datasets
 
-We collect and validate three main datasets:
+We collect and validate six main datasets. For a detailed reference on all fields, types, and constraints, see the **[Data Dictionary](data_dictionary.md)**.
 
 ### 1. players
 Contains profile details of all professional players.
-- url (TEXT, PRIMARY KEY): Unique identifier URL to CueTracker.
-- first_name (TEXT): The player's first name.
-- surname (TEXT): The player's surname.
-- nationality (TEXT): The player's country.
+- `url` (TEXT, PRIMARY KEY): Unique identifier URL to CueTracker.
+- `first_name` (TEXT): The player's first name.
+- `surname` (TEXT): The player's surname.
+- `nationality` (TEXT): The player's country.
 
 ### 2. tournament
 Describes tournaments played since 1907.
-- tourn_id (INTEGER, PRIMARY KEY): Unique tournament ID.
-- url (TEXT): Direct URL to the tournament page.
-- dates (TEXT): Scraped date ranges of the event.
-- name (TEXT): Full name of the tournament.
-- season (TEXT): Season code (e.g. 2025-2026).
-- category (TEXT): Tournament category (e.g. Professional, Amateur).
+- `tourn_id` (INTEGER, PRIMARY KEY): Unique tournament ID.
+- `url` (TEXT): Direct URL to the tournament page.
+- `dates` (TEXT): Scraped date ranges of the event.
+- `name` (TEXT): Full name of the tournament.
+- `season` (TEXT): Season code (e.g. 2025-2026).
+- `category` (TEXT): Tournament category (e.g. Professional, Amateur).
+- `venue` (TEXT): Venue name.
+- `city` (TEXT): City name.
+- `country` (TEXT): Country name.
+- `sponsor` (TEXT): Tournament sponsor name.
+- `prize_fund` (TEXT): Total prize fund.
+- `start_date` (TEXT): ISO 8601 format start date.
+- `end_date` (TEXT): ISO 8601 format end date.
 
 ### 3. matches
 Describes individual match details and scores.
-- match_id (INTEGER, PRIMARY KEY): Unique match ID.
-- tourn_id (INTEGER, FOREIGN KEY): Reference to tournament(tourn_id).
-- date (TEXT, Nullable): Date of the match.
-- stage (TEXT): Round stage (e.g. Final, Semi Final).
-- best_of (INTEGER): Frame limit.
-- player_1_score (INTEGER): Frames won by player 1.
-- player_2_score (INTEGER): Frames won by player 2.
-- player_1 (TEXT): Player 1 name.
-- player_1_url (TEXT): Player 1 URL lookup.
-- player_2 (TEXT): Player 2 name.
-- player_2_url (TEXT): Player 2 URL lookup.
-- scores (TEXT, Nullable): Detailed frame-by-frame scores.
-- walkover (INTEGER): Boolean flag (0 = Standard, 1 = Walkover).
+- `match_id` (INTEGER, PRIMARY KEY): Unique match ID.
+- `tourn_id` (INTEGER, FOREIGN KEY): Reference to tournament(tourn_id).
+- `date` (TEXT, Nullable): Date of the match.
+- `stage` (TEXT): Round stage (e.g. Final, Semi Final).
+- `best_of` (INTEGER): Frame limit.
+- `player_1_score` (INTEGER): Frames won by player 1.
+- `player_2_score` (INTEGER): Frames won by player 2.
+- `player_1` (TEXT): Player 1 name.
+- `player_1_url` (TEXT): Player 1 URL lookup.
+- `player_2` (TEXT): Player 2 name.
+- `player_2_url` (TEXT): Player 2 URL lookup.
+- `scores` (TEXT, Nullable): Detailed frame-by-frame scores.
+- `walkover` (INTEGER): Boolean flag (0 = Standard, 1 = Walkover).
+- `winner` (TEXT): Winner's display name.
+- `winner_url` (TEXT): Winner's URL lookup.
 
 ### 4. frames
 Describes individual frame scores parsed from match results.
-- match_id (INTEGER, PRIMARY KEY, FOREIGN KEY): Reference to matches(match_id).
-- frame_num (INTEGER, PRIMARY KEY): The frame number in the match.
-- player_1_score (INTEGER): Points scored by player 1 in the frame.
-- player_2_score (INTEGER): Points scored by player 2 in the frame.
+- `match_id` (INTEGER, PRIMARY KEY, FOREIGN KEY): Reference to matches(match_id).
+- `frame_num` (INTEGER, PRIMARY KEY): The frame number in the match.
+- `player_1_score` (INTEGER): Points scored by player 1 in the frame.
+- `player_2_score` (INTEGER): Points scored by player 2 in the frame.
 
 ### 5. breaks
-Describes significant scoring breaks during frames.
-- match_id (INTEGER, FOREIGN KEY): Reference to matches(match_id).
-- frame_num (INTEGER): The frame number in the match.
-- player_number (INTEGER): The player who made the break (1 or 2).
-- points (INTEGER): The break score points.
+Describes significant scoring breaks during frames (typically >= 50).
+- `match_id` (INTEGER, FOREIGN KEY): Reference to matches(match_id).
+- `frame_num` (INTEGER): The frame number in the match.
+- `player_number` (INTEGER): The player who made the break (1 or 2).
+- `points` (INTEGER): The break score points.
+
+### 6. rankings
+Tracks the world rankings of players per season.
+- `season` (TEXT, PRIMARY KEY): Season code (e.g. 2025-2026).
+- `player_url` (TEXT, PRIMARY KEY, FOREIGN KEY): References players(url).
+- `player_name` (TEXT): Player's name.
+- `start_position` (INTEGER): World ranking position at start of season.
+- `start_points` (INTEGER): Ranking points at start of season.
+- `difference` (INTEGER): Change in ranking position.
+- `finish_position` (INTEGER): World ranking position at end of season.
+- `finish_points` (INTEGER): Ranking points at end of season.
 
 ---
 
@@ -87,6 +107,10 @@ snookerdb/
 ├── Database/
 │   ├── schema.sql            # SQLite schema definitions
 │   └── snookerdb.db          # SQLite binary database file
+├── Examples/
+│   ├── README.md             # Guide on how to run queries and analytics
+│   ├── basic_queries.py      # Simple Python/SQLite query patterns
+│   └── pandas_analytics.py   # Analytical examples using Pandas
 ├── Parquet/
 │   ├── players.parquet       # Stable sorted players Parquet export
 │   ├── tournament.parquet    # Stable sorted tournament Parquet export
@@ -99,6 +123,7 @@ snookerdb/
 │   └── test_e2e.py           # Pipeline e2e test (mocked requests)
 ├── pyproject.toml            # Ruff, Mypy, and Pytest configuration
 ├── requirements.txt          # Python dependencies
+├── data_dictionary.md        # Comprehensive data dictionary
 └── README.md                 # Project Documentation
 ```
 
@@ -143,6 +168,17 @@ To sync the SQLite data into Parquet format:
 python Code/export_parquet.py
 ```
 *Note: Exports are sorted stably by keys to prevent noisy git diffs when checked in.*
+
+### 4. Running Example Queries & Analytics
+To explore the database, you can run the example scripts:
+```bash
+# To run basic SQL queries on SQLite:
+python Examples/basic_queries.py
+
+# To run advanced analytics using Pandas:
+python Examples/pandas_analytics.py
+```
+See the [Examples/README.md](Examples/README.md) for more details.
 
 ---
 
