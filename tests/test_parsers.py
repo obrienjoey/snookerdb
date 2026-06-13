@@ -149,6 +149,16 @@ def test_parse_frames_and_breaks():
     assert len(f) == 0
     assert len(b) == 0
 
+    # Float/NaN and None
+    import math
+    f, b = parse_frames_and_breaks(3, float("nan"))
+    assert len(f) == 0
+    assert len(b) == 0
+
+    f, b = parse_frames_and_breaks(4, None)
+    assert len(f) == 0
+    assert len(b) == 0
+
 
 def test_parse_rankings(load_fixture):
     html = load_fixture("rankings_page.html")

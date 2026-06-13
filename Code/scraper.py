@@ -551,7 +551,7 @@ def parse_frames_and_breaks(match_id: int, scores_str: str) -> tuple[List[Dict[s
     """
     frames = []
     breaks = []
-    if not scores_str or "Walkover" in scores_str:
+    if not isinstance(scores_str, str) or not scores_str or "Walkover" in scores_str:
         return frames, breaks
 
     frame_strs = [f.strip() for f in scores_str.split(";")]
