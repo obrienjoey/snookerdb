@@ -7,6 +7,7 @@ This script executes incremental updates for the SnookerDB data pipeline. It:
 4. Conducts database updates transactionally using incremental appends (`if_exists="append"`).
 """
 
+import argparse
 import logging
 import sqlite3
 import string
@@ -31,14 +32,15 @@ db_path = base_dir / "Database" / "snookerdb.db"
 schema_path = base_dir / "Database" / "schema.sql"
 
 # Parse CLI arguments
-import argparse
-
 parser = argparse.ArgumentParser(description="Incremental updater / backfill for SnookerDB.")
 parser.add_argument(
     "--seasons",
     nargs="*",
     default=None,
-    help="Specific season names (e.g. 2024-2025 2025-2026) or CueTracker URLs to scrape. Defaults to current and previous season.",
+    help=(
+        "Specific season names (e.g. 2024-2025 2025-2026) or CueTracker URLs to scrape. "
+        "Defaults to current and previous season."
+    ),
 )
 args = parser.parse_args()
 
@@ -346,7 +348,8 @@ with sqlite3.connect(db_path) as conn:
 
     # 7. Backfill Match Dates to ISO 8601
     matches_needing_dates = pd.read_sql_query(
-        "SELECT match_id, date FROM matches WHERE date LIKE '% %' OR date LIKE '%-%-%-%' OR date LIKE '% - %' OR date LIKE '% to %'",
+        "SELECT match_id, date FROM matches "
+        "WHERE date LIKE '% %' OR date LIKE '%-%-%-%' OR date LIKE '% - %' OR date LIKE '% to %'",
         conn,
     )
     if len(matches_needing_dates) > 0:
@@ -362,7 +365,8 @@ with sqlite3.connect(db_path) as conn:
 
     # 8. Backfill Tournament Start/End Dates
     tournaments_needing_dates = pd.read_sql_query(
-        "SELECT tourn_id, dates, season FROM tournament WHERE (start_date IS NULL OR end_date IS NULL) AND dates IS NOT NULL",
+        "SELECT tourn_id, dates, season FROM tournament "
+        "WHERE (start_date IS NULL OR end_date IS NULL) AND dates IS NOT NULL",
         conn,
     )
     if len(tournaments_needing_dates) > 0:
