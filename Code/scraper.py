@@ -26,54 +26,223 @@ _session = None
 def parse_date_to_iso(date_str: str) -> Union[str, None]:
     if not date_str:
         return None
-    try:
-        from datetime import datetime
+    import re
+    from datetime import datetime
 
-        return datetime.strptime(date_str.strip(), "%d %b %Y").strftime("%Y-%m-%d")
-    except ValueError:
+    s = date_str.strip()
+    if not s:
         return None
 
+    # 1. ISO format at the start: YYYY-MM-DD
+    # Handles "2025-12-21", "2026-05-03 - 05-04", "2026-05-03 - 2026-05-04", "2026-05-03 to ..."
+    iso_match = re.match(r"^(\d{4}-\d{2}-\d{2})", s)
+    if iso_match:
+        iso_candidate = iso_match.group(1)
+        try:
+            datetime.strptime(iso_candidate, "%Y-%m-%d")
+            return iso_candidate
+        except ValueError:
+            pass
 
-def parse_tournament_dates(dates_str: str) -> tuple[Union[str, None], Union[str, None]]:
+    # 2. Textual date: "%d %b %Y" (e.g. "05 Jun 2026", "5 Jun 2026")
+    try:
+        return datetime.strptime(s, "%d %b %Y").strftime("%Y-%m-%d")
+    except ValueError:
+        pass
+
+    # 3. Check for range separators (" to ", " - ", " – ", " — ")
+    for sep in [" to ", " - ", " – ", " — "]:
+        if sep in s:
+            start_str, end_str = [p.strip() for p in s.split(sep, 1)]
+
+            # Single ISO in start_str
+            start_iso = re.match(r"^(\d{4}-\d{2}-\d{2})$", start_str)
+            if start_iso:
+                try:
+                    datetime.strptime(start_iso.group(1), "%Y-%m-%d")
+                    return start_iso.group(1)
+                except ValueError:
+                    pass
+
+            # Full textual in start_str: e.g. "01 Jun 2026"
+            try:
+                return datetime.strptime(start_str, "%d %b %Y").strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+
+            # Textual format with month/year borrowed from end_str
+            end_match = re.search(r"([a-zA-Z]{3})\s+(\d{4})$", end_str)
+            if end_match:
+                end_month, end_year = end_match.group(1), end_match.group(2)
+                if re.match(r"^\d{1,2}\s+[a-zA-Z]{3}$", start_str):
+                    try:
+                        return datetime.strptime(f"{start_str} {end_year}", "%d %b %Y").strftime("%Y-%m-%d")
+                    except ValueError:
+                        pass
+                elif re.match(r"^\d{1,2}$", start_str):
+                    try:
+                        return datetime.strptime(f"{start_str} {end_month} {end_year}", "%d %b %Y").strftime("%Y-%m-%d")
+                    except ValueError:
+                        pass
+
+    return None
+
+
+def parse_tournament_dates(
+    dates_str: str, season: Optional[str] = None
+) -> tuple[Union[str, None], Union[str, None]]:
     if not dates_str:
         return None, None
     import re
     from datetime import datetime
 
-    dates_str = dates_str.strip()
-    if " to " in dates_str:
-        start_str, end_str = dates_str.split(" to ")
+    s = dates_str.strip()
+    if not s:
+        return None, None
+
+    # Extract season years if available (e.g. "2025-2026" -> year1=2025, year2=2026)
+    year1: Optional[int] = None
+    year2: Optional[int] = None
+    if season:
+        m = re.search(r"(\d{4})[-/](\d{4})", season)
+        if m:
+            year1, year2 = int(m.group(1)), int(m.group(2))
+        else:
+            m_single = re.search(r"(\d{4})", season)
+            if m_single:
+                year1 = year2 = int(m_single.group(1))
+
+    def resolve_year_for_month(month: int) -> Optional[int]:
+        if year1 is not None and year2 is not None:
+            # Snooker season: May-Dec (months 5-12) is year1, Jan-Apr (months 1-4) is year2
+            return year1 if month >= 5 else year2
+        elif year1 is not None:
+            return year1
+        return None
+
+    # 1. Check for range separators: " to ", " - ", " – ", " — "
+    separator = None
+    for sep in [" to ", " - ", " – ", " — "]:
+        if sep in s:
+            separator = sep
+            break
+
+    if separator:
+        start_str, end_str = [p.strip() for p in s.split(separator, 1)]
+
+        # 1a. Check ISO range: YYYY-MM-DD - YYYY-MM-DD or YYYY-MM-DD - MM-DD
+        m_iso_full = re.match(r"^(\d{4}-\d{2}-\d{2})\s*(?:to|-|–|—)\s*(\d{4}-\d{2}-\d{2})$", s)
+        if m_iso_full:
+            d1_s, d2_s = m_iso_full.group(1), m_iso_full.group(2)
+            try:
+                datetime.strptime(d1_s, "%Y-%m-%d")
+                datetime.strptime(d2_s, "%Y-%m-%d")
+                return d1_s, d2_s
+            except ValueError:
+                pass
+
+        m_iso_partial = re.match(r"^(\d{4})-(\d{2})-(\d{2})\s*(?:to|-|–|—)\s*(\d{2})-(\d{2})$", s)
+        if m_iso_partial:
+            y1_s, m1_s, d1_s, m2_s, d2_s = m_iso_partial.groups()
+            y1 = int(y1_s)
+            m1, m2 = int(m1_s), int(m2_s)
+            y2 = y1 if m2 >= m1 else y1 + 1
+            res1 = f"{y1:04d}-{m1_s}-{d1_s}"
+            res2 = f"{y2:04d}-{m2_s}-{d2_s}"
+            try:
+                datetime.strptime(res1, "%Y-%m-%d")
+                datetime.strptime(res2, "%Y-%m-%d")
+                return res1, res2
+            except ValueError:
+                pass
+
+        # 1b. Check numeric DD-MM-YYYY - DD-MM-YYYY
+        m_dmy_full = re.match(r"^(\d{1,2})-(\d{1,2})-(\d{4})\s*(?:to|-|–|—)\s*(\d{1,2})-(\d{1,2})-(\d{4})$", s)
+        if m_dmy_full:
+            d1_i, m1_i, y1_i, d2_i, m2_i, y2_i = [int(x) for x in m_dmy_full.groups()]
+            res1 = f"{y1_i:04d}-{m1_i:02d}-{d1_i:02d}"
+            res2 = f"{y2_i:04d}-{m2_i:02d}-{d2_i:02d}"
+            try:
+                datetime.strptime(res1, "%Y-%m-%d")
+                datetime.strptime(res2, "%Y-%m-%d")
+                return res1, res2
+            except ValueError:
+                pass
+
+        # 1c. Check numeric DD-MM - DD-MM (e.g. "18-04 - 04-05")
+        m_dm_short = re.match(r"^(\d{1,2})-(\d{1,2})\s*(?:to|-|–|—)\s*(\d{1,2})-(\d{1,2})$", s)
+        if m_dm_short:
+            d1_i, m1_i, d2_i, m2_i = [int(x) for x in m_dm_short.groups()]
+            y1_calc = resolve_year_for_month(m1_i)
+            if y1_calc is not None:
+                y2_calc = y1_calc if m2_i >= m1_i else y1_calc + 1
+                res1 = f"{y1_calc:04d}-{m1_i:02d}-{d1_i:02d}"
+                res2 = f"{y2_calc:04d}-{m2_i:02d}-{d2_i:02d}"
+                try:
+                    datetime.strptime(res1, "%Y-%m-%d")
+                    datetime.strptime(res2, "%Y-%m-%d")
+                    return res1, res2
+                except ValueError:
+                    pass
+
+        # 1d. Textual ranges (e.g. "01 Jun to 05 Jun 2026", "01 to 05 Jun 2026", "28 Dec 2023 to 03 Jan 2024")
         end_date = None
         try:
-            end_date_obj = datetime.strptime(end_str.strip(), "%d %b %Y")
+            end_date_obj = datetime.strptime(end_str, "%d %b %Y")
             end_date = end_date_obj.strftime("%Y-%m-%d")
         except ValueError:
             pass
 
         start_date = None
-        start_str = start_str.strip()
-        if re.match(r"^\d{2} [a-zA-Z]{3} \d{4}$", start_str):
+        if re.match(r"^\d{1,2} [a-zA-Z]{3} \d{4}$", start_str):
             try:
                 start_date = datetime.strptime(start_str, "%d %b %Y").strftime("%Y-%m-%d")
             except Exception:
                 pass
-        elif re.match(r"^\d{2} [a-zA-Z]{3}$", start_str) and end_date:
+        elif re.match(r"^\d{1,2} [a-zA-Z]{3}$", start_str) and end_date:
             try:
                 start_date = datetime.strptime(start_str + " " + end_date[:4], "%d %b %Y").strftime("%Y-%m-%d")
             except Exception:
                 pass
-        elif re.match(r"^\d{2}$", start_str) and end_date:
+        elif re.match(r"^\d{1,2}$", start_str) and end_date:
             try:
-                start_date = end_date[:8] + start_str
+                start_date = f"{end_date[:8]}{int(start_str):02d}"
+                datetime.strptime(start_date, "%Y-%m-%d")
             except Exception:
-                pass
-        return start_date, end_date
-    else:
+                start_date = None
+
+        if start_date or end_date:
+            return start_date, end_date
+
+    # 2. Single dates
+    # 2a. Single ISO YYYY-MM-DD
+    m_single_iso = re.match(r"^(\d{4}-\d{2}-\d{2})$", s)
+    if m_single_iso:
         try:
-            dt = datetime.strptime(dates_str, "%d %b %Y").strftime("%Y-%m-%d")
-            return dt, dt
-        except Exception:
-            return None, None
+            datetime.strptime(m_single_iso.group(1), "%Y-%m-%d")
+            return m_single_iso.group(1), m_single_iso.group(1)
+        except ValueError:
+            pass
+
+    # 2b. Single numeric DD-MM-YYYY
+    m_single_dmy = re.match(r"^(\d{1,2})-(\d{1,2})-(\d{4})$", s)
+    if m_single_dmy:
+        d_i, m_i, y_i = [int(x) for x in m_single_dmy.groups()]
+        res = f"{y_i:04d}-{m_i:02d}-{d_i:02d}"
+        try:
+            datetime.strptime(res, "%Y-%m-%d")
+            return res, res
+        except ValueError:
+            pass
+
+    # 2c. Single textual "%d %b %Y"
+    try:
+        dt = datetime.strptime(s, "%d %b %Y").strftime("%Y-%m-%d")
+        return dt, dt
+    except Exception:
+        pass
+
+    return None, None
 
 
 def parse_tournament_details(html: str) -> Dict[str, str]:
@@ -302,7 +471,7 @@ def parse_tournament_urls(html: str, season: str) -> List[Dict[str, Any]]:
 
         category = tds[2].get_text().strip()
 
-        start_date, end_date = parse_tournament_dates(dates)
+        start_date, end_date = parse_tournament_dates(dates, season=season)
 
         try:
             tourn_model = TournamentModel(
@@ -335,7 +504,7 @@ def tournament_urls(season_urls: Union[List[str], str]) -> List[Dict[str, Any]]:
     if isinstance(season_urls, str):
         season_urls = [season_urls]
     for season_url in season_urls:
-        season = season_url[-9:]
+        season = season_url.rstrip("/").rsplit("/", 1)[-1]
         try:
             html = fetch_html(season_url)
             parsed_data = parse_tournament_urls(html, season)
