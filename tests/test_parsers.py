@@ -54,17 +54,35 @@ def test_parse_tournament_urls(load_fixture):
 
 
 def test_parse_date_to_iso():
+    # Legacy text dates
     assert parse_date_to_iso("05 Jun 2026") == "2026-06-05"
     assert parse_date_to_iso("28 Dec 2023") == "2023-12-28"
     assert parse_date_to_iso("") is None
 
+    # Modern ISO dates
+    assert parse_date_to_iso("2025-12-21") == "2025-12-21"
+    assert parse_date_to_iso("2026-05-03 - 05-04") == "2026-05-03"
+    assert parse_date_to_iso("2026-05-03 - 2026-05-04") == "2026-05-03"
+    assert parse_date_to_iso("01 Jun to 05 Jun 2026") == "2026-06-01"
+    assert parse_date_to_iso("01 to 05 Jun 2026") == "2026-06-01"
+
 
 def test_parse_tournament_dates():
+    # Legacy textual dates
     assert parse_tournament_dates("01 Jun to 05 Jun 2026") == ("2026-06-01", "2026-06-05")
     assert parse_tournament_dates("01 to 05 Jun 2026") == ("2026-06-01", "2026-06-05")
     assert parse_tournament_dates("28 Dec 2023 to 03 Jan 2024") == ("2023-12-28", "2024-01-03")
     assert parse_tournament_dates("05 Jun 2026") == ("2026-06-05", "2026-06-05")
     assert parse_tournament_dates("") == (None, None)
+
+    # Modern numeric and ISO dates
+    assert parse_tournament_dates("18-04 - 04-05", season="2025-2026") == ("2026-04-18", "2026-05-04")
+    assert parse_tournament_dates("03-12 - 09-12", season="2025-2026") == ("2025-12-03", "2025-12-09")
+    assert parse_tournament_dates("28-12 - 04-01", season="2025-2026") == ("2025-12-28", "2026-01-04")
+    assert parse_tournament_dates("18-04-2026 - 04-05-2026") == ("2026-04-18", "2026-05-04")
+    assert parse_tournament_dates("2026-04-18 - 2026-05-04") == ("2026-04-18", "2026-05-04")
+    assert parse_tournament_dates("2025-12-21") == ("2025-12-21", "2025-12-21")
+    assert parse_tournament_dates("18-04-2026") == ("2026-04-18", "2026-04-18")
 
 
 def test_parse_matches(load_fixture):

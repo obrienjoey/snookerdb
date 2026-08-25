@@ -30,6 +30,18 @@ base_dir = Path(__file__).resolve().parent.parent
 db_path = base_dir / "Database" / "snookerdb.db"
 schema_path = base_dir / "Database" / "schema.sql"
 
+# Parse CLI arguments
+import argparse
+
+parser = argparse.ArgumentParser(description="Incremental updater / backfill for SnookerDB.")
+parser.add_argument(
+    "--seasons",
+    nargs="*",
+    default=None,
+    help="Specific season names (e.g. 2024-2025 2025-2026) or CueTracker URLs to scrape. Defaults to current and previous season.",
+)
+args = parser.parse_args()
+
 # Ensure directories exist
 db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -58,22 +70,30 @@ with sqlite3.connect(db_path) as conn:
             pass
     conn.commit()
 
-# 2. Fetch tournament urls and scrape
+# 2. Resolve target season URLs
 logger.info("Scraping season and tournament list...")
-season_urls = scraper.season_urls()
-if not season_urls:
+all_season_urls = scraper.season_urls()
+if not all_season_urls:
     raise RuntimeError("No season URLs retrieved. Scraping aborted.")
 
-check_season = season_urls[0]
-tourn_df = pd.DataFrame(scraper.tournament_urls(check_season))
+if args.seasons:
+    target_season_urls = []
+    for s in args.seasons:
+        s_clean = s.strip()
+        if s_clean.startswith("http://") or s_clean.startswith("https://"):
+            target_season_urls.append(s_clean)
+        else:
+            target_season_urls.append(f"https://cuetracker.net/seasons/{s_clean}")
+else:
+    # Default to inspecting the current and immediate previous season (e.g. all_season_urls[:2])
+    target_season_urls = all_season_urls[:2]
 
-# If no tournaments in current season, fallback to previous season
-if len(tourn_df) == 0:
-    logger.info("No tournaments found for current season. Checking previous season...")
-    tourn_df = pd.DataFrame(scraper.tournament_urls(season_urls[1]))
+logger.info(f"Targeting season URLs: {target_season_urls}")
+tournaments = scraper.tournament_urls(target_season_urls)
+tourn_df = pd.DataFrame(tournaments)
 
 if len(tourn_df) == 0:
-    raise RuntimeError("No tournaments found for current or previous season. Scraping aborted.")
+    raise RuntimeError(f"No tournaments found for target seasons {target_season_urls}. Scraping aborted.")
 
 # 3. Read existing data to compare and only fetch/insert new records
 with sqlite3.connect(db_path) as conn:
@@ -295,13 +315,16 @@ with sqlite3.connect(db_path) as conn:
             conn.commit()
 
     # 7. Backfill Match Dates to ISO 8601
-    matches_needing_dates = pd.read_sql_query("SELECT match_id, date FROM matches WHERE date LIKE '% %'", conn)
+    matches_needing_dates = pd.read_sql_query(
+        "SELECT match_id, date FROM matches WHERE date LIKE '% %' OR date LIKE '%-%-%-%' OR date LIKE '% - %' OR date LIKE '% to %'",
+        conn,
+    )
     if len(matches_needing_dates) > 0:
         logger.info(f"Backfilling ISO dates for {len(matches_needing_dates)} matches...")
         updates: list[tuple[Any, ...]] = []
         for row in matches_needing_dates.to_dict("records"):
             d = scraper.parse_date_to_iso(row["date"])
-            if d:
+            if d and d != row["date"]:
                 updates.append((d, row["match_id"]))
         if updates:
             conn.executemany("UPDATE matches SET date = ? WHERE match_id = ?", updates)
@@ -309,13 +332,14 @@ with sqlite3.connect(db_path) as conn:
 
     # 8. Backfill Tournament Start/End Dates
     tournaments_needing_dates = pd.read_sql_query(
-        "SELECT tourn_id, dates FROM tournament WHERE start_date IS NULL AND dates IS NOT NULL", conn
+        "SELECT tourn_id, dates, season FROM tournament WHERE (start_date IS NULL OR end_date IS NULL) AND dates IS NOT NULL",
+        conn,
     )
     if len(tournaments_needing_dates) > 0:
         logger.info(f"Backfilling start/end dates for {len(tournaments_needing_dates)} tournaments...")
         updates: list[tuple[Any, ...]] = []
         for row in tournaments_needing_dates.to_dict("records"):
-            sd, ed = scraper.parse_tournament_dates(row["dates"])
+            sd, ed = scraper.parse_tournament_dates(row["dates"], season=row.get("season"))
             if sd or ed:
                 updates.append((sd, ed, row["tourn_id"]))
         if updates:
@@ -364,10 +388,7 @@ with sqlite3.connect(db_path) as conn:
 
     # 10. Update Rankings
     try:
-        active_season_names = [season_urls[0][-9:]]
-        if len(season_urls) > 1:
-            active_season_names.append(season_urls[1][-9:])
-
+        active_season_names = [s.rstrip("/").rsplit("/", 1)[-1] for s in target_season_urls]
         logger.info(f"Updating rankings for active seasons: {active_season_names}")
         scraped_rankings = scraper.scrape_rankings(active_season_names)
         rankings_df = pd.DataFrame(scraped_rankings)
@@ -381,4 +402,58 @@ with sqlite3.connect(db_path) as conn:
             logger.info("Rankings updated successfully.")
     except Exception as e:
         logger.error(f"Failed to update rankings: {e}")
+
+    # 11. Data Integrity and Continuity Validation
+    logger.info("Running data integrity and continuity check...")
+    validation_errors: list[str] = []
+    target_season_names = [s.rstrip("/").rsplit("/", 1)[-1] for s in target_season_urls]
+
+    # Check 1: Ensure each targeted season has at least 1 tournament in the database
+    for s in target_season_names:
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM tournament WHERE season = ?", (s,))
+        count = cursor.fetchone()[0]
+        if count == 0:
+            validation_errors.append(f"Season '{s}' has 0 tournaments in the database.")
+
+    # Check 2: Completed non-walkover matches in recent targeted seasons should have valid non-null dates
+    cursor = conn.cursor()
+    placeholders = ",".join("?" for _ in target_season_names)
+    cursor.execute(
+        f"""
+        SELECT COUNT(*)
+        FROM matches m
+        JOIN tournament t ON m.tourn_id = t.tourn_id
+        WHERE t.season IN ({placeholders})
+          AND m.walkover = 0
+          AND (m.scores IS NOT NULL AND m.scores != '')
+          AND m.date IS NULL
+        """,
+        target_season_names,
+    )
+    null_date_matches = cursor.fetchone()[0]
+    if null_date_matches > 0:
+        validation_errors.append(
+            f"Found {null_date_matches} completed non-walkover matches with NULL dates in target seasons {target_season_names}."
+        )
+
+    # Check 3: Check for invalid non-ISO date formats in matches table
+    cursor.execute(
+        """
+        SELECT COUNT(*)
+        FROM matches
+        WHERE date IS NOT NULL
+          AND date NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+        """
+    )
+    non_iso_dates = cursor.fetchone()[0]
+    if non_iso_dates > 0:
+        validation_errors.append(f"Found {non_iso_dates} matches with invalid non-ISO dates in the database.")
+
+    if validation_errors:
+        for err in validation_errors:
+            logger.error(f"DATA INTEGRITY ERROR: {err}")
+        raise RuntimeError(f"Data integrity check failed: {'; '.join(validation_errors)}")
+
+    logger.info("Data integrity and continuity checks passed successfully.")
 
