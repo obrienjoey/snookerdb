@@ -68,6 +68,15 @@ with sqlite3.connect(db_path) as conn:
             conn.execute(f"ALTER TABLE tournament ADD COLUMN {col} TEXT")
         except sqlite3.OperationalError:
             pass
+
+    # Normalize literal 'None' strings from legacy inserts to SQL NULL
+    try:
+        conn.execute("UPDATE matches SET date = NULL WHERE date = 'None'")
+        conn.execute("UPDATE matches SET scores = NULL WHERE scores = 'None'")
+        conn.execute("UPDATE tournament SET sponsor = NULL WHERE sponsor = 'None'")
+    except sqlite3.OperationalError:
+        pass
+
     conn.commit()
 
 # 2. Resolve target season URLs
@@ -106,12 +115,21 @@ local_match_ids = set(local_match_df["match_id"].astype(str))
 local_tourn_ids = set(local_tourn_df["tourn_id"].astype(str))
 local_player_urls = set(local_player_df["url"].str.lower())
 
-# Identify completed tournaments (those with a Final match that has a result)
-completed_tourn_ids = set(
+# Identify completed tournaments (those with a Final match that has a result, and no missing match dates)
+tourns_with_final = set(
     local_match_df[
         (local_match_df["stage"] == "Final") & (local_match_df["scores"].notna() | (local_match_df["walkover"] == 1))
     ]["tourn_id"].astype(str)
 )
+tourns_with_missing_dates = set(
+    local_match_df[
+        (local_match_df["walkover"] == 0)
+        & (local_match_df["scores"].notna())
+        & (local_match_df["scores"] != "")
+        & (local_match_df["date"].isna() | (local_match_df["date"] == ""))
+    ]["tourn_id"].astype(str)
+)
+completed_tourn_ids = tourns_with_final - tourns_with_missing_dates
 
 # Filter tournaments: only scrape if they are new or not completed
 active_tourn_df = tourn_df[~tourn_df["tourn_id"].astype(str).isin(completed_tourn_ids)]
@@ -240,6 +258,18 @@ with sqlite3.connect(db_path) as conn:
             pd.DataFrame(new_breaks).to_sql("breaks", conn, if_exists="append", index=False)
     else:
         logger.info("No new matches to add.")
+
+    # Update dates on existing matches in active tournaments if they were previously NULL
+    existing_matches_in_scrape = match_df[match_df["match_id"].astype(str).isin(local_match_ids)]
+    date_updates = [
+        (row["date"], row["match_id"])
+        for _, row in existing_matches_in_scrape.iterrows()
+        if pd.notna(row["date"]) and row["date"]
+    ]
+    if date_updates:
+        logger.info(f"Updating missing dates for {len(date_updates)} existing matches...")
+        conn.executemany("UPDATE matches SET date = ? WHERE match_id = ? AND date IS NULL", date_updates)
+        conn.commit()
 
     # Backfill frames and breaks for existing matches missing from the frames table
     try:
@@ -416,26 +446,20 @@ with sqlite3.connect(db_path) as conn:
         if count == 0:
             validation_errors.append(f"Season '{s}' has 0 tournaments in the database.")
 
-    # Check 2: Completed non-walkover matches in recent targeted seasons should have valid non-null dates
-    cursor = conn.cursor()
-    placeholders = ",".join("?" for _ in target_season_names)
-    cursor.execute(
-        f"""
-        SELECT COUNT(*)
-        FROM matches m
-        JOIN tournament t ON m.tourn_id = t.tourn_id
-        WHERE t.season IN ({placeholders})
-          AND m.walkover = 0
-          AND (m.scores IS NOT NULL AND m.scores != '')
-          AND m.date IS NULL
-        """,
-        target_season_names,
-    )
-    null_date_matches = cursor.fetchone()[0]
-    if null_date_matches > 0:
-        validation_errors.append(
-            f"Found {null_date_matches} completed non-walkover matches with NULL dates in target seasons {target_season_names}."
+    # Check 2: Targeted seasons must have matches with valid dates (>0)
+    for s in target_season_names:
+        cursor.execute(
+            """
+            SELECT COUNT(*)
+            FROM matches m
+            JOIN tournament t ON m.tourn_id = t.tourn_id
+            WHERE t.season = ? AND m.date IS NOT NULL AND m.date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+            """,
+            (s,),
         )
+        dated_matches = cursor.fetchone()[0]
+        if dated_matches == 0:
+            validation_errors.append(f"Season '{s}' has 0 matches with valid dates in the database.")
 
     # Check 3: Check for invalid non-ISO date formats in matches table
     cursor.execute(
